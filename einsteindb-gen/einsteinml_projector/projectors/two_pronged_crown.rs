@@ -219,7 +219,7 @@ impl TupleTwoProngedCrownProjector {
         assert!(row.column_count() >= self.len as i32);
         self.templates
             .iter()
-            .map(|ti| ti.lookup(&row))
+            .map(|einst| einst.lookup(&row))
             .collect::<Result<Vec<Binding>>>()
     }
 
@@ -304,7 +304,7 @@ impl RelTwoProngedCrownProjector {
         let mut count = 0;
         for binding in self.templates
                            .iter()
-                           .map(|ti| ti.lookup(&row)) {
+                           .map(|einst| einst.lookup(&row)) {
             out.push(binding?);
             count += 1;
         }
