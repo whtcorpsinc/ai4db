@@ -18,7 +18,7 @@ module Dessin.Violeta.Sender
 	import Dessin.Violeta.Util
 	import Dessin.Violeta.Types
 
-	sendAppendEntries :: Ord nt => nt -> BftRaft nt et rt mt ()
+	sendAppendEntries :: Ord nt => nt -> Bftvioletabft nt et rt mt ()
 	sendAppendEntries target = do
 		mni <- use $ lNextIndex.at target
 		es <- use logEntries
@@ -30,7 +30,7 @@ module Dessin.Violeta.Sender
 		sendRPC target $ AE $
 			AppendEntries ct nid pli plt (Seq.drop (pli + 1) es) ci
 
-	 sendAppendEntriesResponse :: nt -> Bool -> logIndex -> BftRaft nt et rt mt ()
+	 sendAppendEntriesResponse :: nt -> Bool -> logIndex -> Bftvioletabft nt et rt mt ()
 	 sendAppendEntriesResponse target success lindex = do
 	 	ct <- use term
 	 	nid <- view(cfg.nodeId)

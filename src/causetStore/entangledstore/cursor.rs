@@ -519,7 +519,7 @@ mod tests {
     use txn_types::Key;
 
     use crate::causetStorage::{CfStatistics, Cursor, ScanMode};
-    use raftstore::store::{new_temp_engine, RegionSnapshot};
+    use violetabftstore::store::{new_temp_engine, RegionSnapshot};
 
     type DataSet = Vec<(Vec<u8>, Vec<u8>)>;
 

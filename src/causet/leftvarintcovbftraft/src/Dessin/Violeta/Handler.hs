@@ -21,7 +21,7 @@ import qualified Data.Set as Set
 import Prelude hiding (mapM)
 import Data.Traversable (mapM)
 
-handleEvents :: Ord nt => BftRaft nt et rt mt ()
+handleEvents :: Ord nt => Bftvioletabft nt et rt mt ()
 handleEvents = forever $ do
   e <- dequeueEvent
   case e of
@@ -29,7 +29,7 @@ handleEvents = forever $ do
     ElectionTimeout s  -> handleElectionTimeout s
     HeartbeatTimeout s -> handleHeartbeatTimeout s
 
-handleRPC :: Ord nt => RPC nt et rt -> BftBftRaft nt et rt mt ()
+handleRPC :: Ord nt => RPC nt et rt -> BftBftvioletabft nt et rt mt ()
 handleRPC rpc = do
   case rpc of
     AE ae     -> handleAppendEntries ae
@@ -40,13 +40,13 @@ handleRPC rpc = do
     CMDR _    -> debug "got a command response RPC"
     DBG s     -> debug $ "got a debug RPC: " ++ s
 
-handleElectionTimeout :: Ord nt => String -> BftBftRaft nt et rt mt ()
+handleElectionTimeout :: Ord nt => String -> BftBftvioletabft nt et rt mt ()
 handleElectionTimeout s = do
   debug $ "election timeout: " ++ s
   r <- use role
   when (r /= Leader) becomeCandidate
 
-handleHeartbeatTimeout :: Ord nt => String -> BftBftRaft nt et rt mt ()
+handleHeartbeatTimeout :: Ord nt => String -> BftBftvioletabft nt et rt mt ()
 handleHeartbeatTimeout s = do
   debug $ "heartbeat timeout: " ++ s
   r <- use role
@@ -55,7 +55,7 @@ handleHeartbeatTimeout s = do
       fork_ sendAllAppendEntries
       resetHeartbeatTimer
 
-handleTermNumber :: Term -> BftBftRaft nt et rt mt ()
+handleTermNumber :: Term -> BftBftvioletabft nt et rt mt ()
 handleTermNumber rpcTerm = do
   ct <- use term
   when (rpcTerm > ct) $ do
@@ -64,7 +64,7 @@ handleTermNumber rpcTerm = do
     term .= rpcTerm
     becomeFollower
 
-handleAppendEntries :: AppendEntries nt et -> BftBftRaft nt et rt mt ()
+handleAppendEntries :: AppendEntries nt et -> BftBftvioletabft nt et rt mt ()
 handleAppendEntries AppendEntries{..} = do
   debug $ "got an appendEntries RPC: prev log entry: Index " ++ show _prevLogIndex ++ " " ++ show _prevLogTerm
   handleTermNumber _aeTerm
@@ -88,7 +88,7 @@ handleAppendEntries AppendEntries{..} = do
           commitIndex .= min _leaderCommit newLastEntry
           applyLogEntries
 
-prevLogEntryMatches :: LogIndex -> Term -> BftRaft nt et rt mt Bool
+prevLogEntryMatches :: LogIndex -> Term -> Bftvioletabft nt et rt mt Bool
 prevLogEntryMatches pli plt = do
   es <- use logEntries
   case seqIndex es pli of
@@ -98,11 +98,11 @@ prevLogEntryMatches pli plt = do
     Just (t,_) -> return (t == plt)
 
 -- TODO: check this
-appendLogEntries :: LogIndex -> Seq (Term, Command nt et) -> BftBRaft nt et rt mt ()
+appendLogEntries :: LogIndex -> Seq (Term, Command nt et) -> BftBvioletabft nt et rt mt ()
 appendLogEntries pli es =
   logEntries %= (Seq.>< es) . Seq.take (pli + 1)
 
-handleAppendEntriesResponse :: Ord nt => AppendEntriesResponse nt -> BftRaft nt et rt mt ()
+handleAppendEntriesResponse :: Ord nt => AppendEntriesResponse nt -> Bftvioletabft nt et rt mt ()
 handleAppendEntriesResponse AppendEntriesResponse{..} = do
   debug "got an appendEntriesResponse RPC"
   handleTermNumber _aerTerm
@@ -118,7 +118,7 @@ handleAppendEntriesResponse AppendEntriesResponse{..} = do
         lNextIndex %= Map.adjust (subtract 1) _aerNodeId
         fork_ $ sendAppendEntries _aerNodeId
 
-applyCommand :: Command nt et -> BftRaft nt et rt mt (nt, CommandResponse nt rt)
+applyCommand :: Command nt et -> Bftvioletabft nt et rt mt (nt, CommandResponse nt rt)
 applyCommand Command{..} = do
   apply <- view (rs.applyLogEntry)
   result <- apply _cmdEntry
@@ -131,7 +131,7 @@ applyCommand Command{..} = do
         (case mlid of Just lid -> lid; Nothing -> nid)
         _cmdRequestId)
 
-leaderDoCommit :: BftRaft nt et rt mt ()
+leaderDoCommit :: Bftvioletabft nt et rt mt ()
 leaderDoCommit = do
   commitUpdate <- leaderUpdateCommitIndex
   when commitUpdate applyLogEntries
@@ -139,7 +139,7 @@ leaderDoCommit = do
 -- apply the un-applied log entries up through commitIndex
 -- and send results to the client if you are the leader
 -- TODO: have this done on a separate thread via event passing
-applyLogEntries :: BftRaft nt et rt mt ()
+applyLogEntries :: Bftvioletabft nt et rt mt ()
 applyLogEntries = do
   la <- use lastApplied
   ci <- use commitIndex
@@ -154,7 +154,7 @@ applyLogEntries = do
 -- called only as leader
 -- checks to see what the largest N where a majority of
 -- the lMatchIndex set is >= N
-leaderUpdateCommitIndex :: BftRaft nt et rt mt Bool
+leaderUpdateCommitIndex :: Bftvioletabft nt et rt mt Bool
 leaderUpdateCommitIndex = do
   ci <- use commitIndex
   lmi <- use lMatchIndex
@@ -179,7 +179,7 @@ leaderUpdateCommitIndex = do
       debug $ "commit index is now: " ++ show (last qcinds)
       return True
 
-handleRequestVote :: Eq nt => RequestVote nt -> BftRaft nt et rt mt ()
+handleRequestVote :: Eq nt => RequestVote nt -> Bftvioletabft nt et rt mt ()
 handleRequestVote RequestVote{..} = do
   debug $ "got a requestVote RPC for " ++ show _rvTerm
   handleTermNumber _rvTerm
@@ -214,7 +214,7 @@ handleRequestVote RequestVote{..} = do
         debug "haven't voted, but my log is better than this candidate's"
         fork_ $ sendRequestVoteResponse _candidateId False
 
-handleRequestVoteResponse :: Ord nt => RequestVoteResponse nt -> BftRaft nt et rt mt ()
+handleRequestVoteResponse :: Ord nt => RequestVoteResponse nt -> Bftvioletabft nt et rt mt ()
 handleRequestVoteResponse RequestVoteResponse{..} = do
   debug $ "got a requestVoteResponse RPC for " ++ show _rvrTerm ++ ": " ++ show _voteGranted
   handleTermNumber _rvrTerm
@@ -227,7 +227,7 @@ handleRequestVoteResponse RequestVoteResponse{..} = do
       else
         cPotentialVotes %= Set.delete _rvrNodeId
 
-handleCommand :: Ord nt => Command nt et -> BftRaft nt et rt mt ()
+handleCommand :: Ord nt => Command nt et -> Bftvioletabft nt et rt mt ()
 handleCommand cmd = do
   debug "got a command RPC"
   r <- use role

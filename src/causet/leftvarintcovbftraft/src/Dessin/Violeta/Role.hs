@@ -14,25 +14,25 @@ module Dessin.Violeta.Role
 
 
 -- count the yes votes and become leader if you have reached a quorum
-checkElection :: Ord nt => BftRaft nt et rt mt ()
+checkElection :: Ord nt => Bftvioletabft nt et rt mt ()
 checkElection = do
   nyes <- Set.size <$> use cYesVotes
   qsize <- view quorumSize
   debug $ "yes votes: " ++ show nyes ++ " quorum size: " ++ show qsize
   when (nyes >= qsize) $ becomeLeader
 
-setVotedFor :: Maybe nt -> BftRaft nt et rt mt ()
+setVotedFor :: Maybe nt -> Bftvioletabft nt et rt mt ()
 setVotedFor mvote = do
   _ <- rs.writeVotedFor ^$ mvote
   votedFor .= mvote
 
-becomeFollower :: BftRaft nt et rt mt ()
+becomeFollower :: Bftvioletabft nt et rt mt ()
 becomeFollower = do
   debug "becoming follower"
   role .= Follower
   resetElectionTimer
 
-  becomeCandidate :: Ord nt => BftRaft nt et rt mt ()
+  becomeCandidate :: Ord nt => Bftvioletabft nt et rt mt ()
 becomeCandidate = do
   debug "becoming candidate"
   role .= Candidate
@@ -49,7 +49,7 @@ becomeCandidate = do
   r <- use role
   when (r == Candidate) $ fork_ sendAllRequestVotes
 
-becomeLeader :: Ord nt => BftRaft nt et rt mt ()
+becomeLeader :: Ord nt => Bftvioletabft nt et rt mt ()
 becomeLeader = do
   debug "becoming leader"
   role .= Leader

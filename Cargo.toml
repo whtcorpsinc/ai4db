@@ -7,7 +7,7 @@ authors = [
 
 name = "einsteindb"
 license = "Apache-2.0"
-keywords = ["embedded", "distributed-systems", "BFTRaft" ]
+keywords = ["embedded", "distributed-systems", "BFTvioletabft" ]
 version = "0.4.1"
 build = "build/version.rs"
 edition = "2018"

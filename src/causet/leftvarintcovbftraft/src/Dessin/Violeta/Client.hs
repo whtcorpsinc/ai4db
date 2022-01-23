@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Dessin.Violeta.CausetC.Client
-(   runBftBftRaftClient
+(   runBftBftvioletabftClient
 	), where
 
 import Control.Concurrent.Chan.Unagi
@@ -19,17 +19,17 @@ import Dessin.Violeta.CausetC.Types
 import Dessin.Violeta.CausetC.Util
 import Dessin.Violeta.CausetC.Sender (sendSignedRPC)
 
-runBftRaftClient :: (Binary nt, Binary et, Binary rt, Ord nt) => IO et -> (rt -> IO ()) -> Config nt -> BftRaftSpec nt et rt mt -> IO ()
-runBftRaftClient getEntry useResult rconf spec@BftRaftSpec{..} = do
+runBftvioletabftClient :: (Binary nt, Binary et, Binary rt, Ord nt) => IO et -> (rt -> IO ()) -> Config nt -> BftvioletabftSpec nt et rt mt -> IO ()
+runBftvioletabftClient getEntry useResult rconf spec@BftvioletabftSpec{..} = do
   let qsize = getQuorumSize $ Set.size $ rconf ^. otherNodes
   (ein, eout) <- newChan
   runRWS_
-    (BftRaftClient (lift getEntry) (lift . useResult))
-    (BftRaftEnv rconf qsize ein eout (liftBftRaftSpec spec))
-    initialBftRaftState -- only use currentLeader and logEntries
+    (BftvioletabftClient (lift getEntry) (lift . useResult))
+    (BftvioletabftEnv rconf qsize ein eout (liftBftvioletabftSpec spec))
+    initialBftvioletabftState -- only use currentLeader and logEntries
 
-BftRaftClient :: (Binary nt, Binary et, Binary rt, Ord nt) => BftRaft nt et rt mt et -> (rt -> BftRaft nt et rt mt ()) -> BftRaft nt et rt mt ()
-BftRaftClient getEntry useResult = do
+BftvioletabftClient :: (Binary nt, Binary et, Binary rt, Ord nt) => Bftvioletabft nt et rt mt et -> (rt -> Bftvioletabft nt et rt mt ()) -> Bftvioletabft nt et rt mt ()
+BftvioletabftClient getEntry useResult = do
   nodes <- view (cfg.otherNodes)
   when (Set.null nodes) $ error "The client has no nodes to send requests to."
   currentLeader .= (Just $ Set.findMin nodes)
@@ -39,7 +39,7 @@ BftRaftClient getEntry useResult = do
   clientHandleEvents useResult
 
 -- get commands with getEntry and put them on the event queue to be sent
-commandGetter :: BftRaft nt et rt mt et -> BftRaft nt et rt mt ()
+commandGetter :: Bftvioletabft nt et rt mt et -> Bftvioletabft nt et rt mt ()
 commandGetter getEntry = do
   nid <- view (cfg.nodeId)
   forever $ do
@@ -47,12 +47,12 @@ commandGetter getEntry = do
     rid <- nextRequestId
     enqueueEvent $ ERPC $ CMD $ Command entry nid rid B.empty
 
-nextRequestId :: BftRaft nt et rt mt RequestId
+nextRequestId :: Bftvioletabft nt et rt mt RequestId
 nextRequestId = do
   currentRequestId += 1
   use currentRequestId
 
-clientHandleEvents :: (Binary nt, Binary et, Binary rt, Ord nt) => (rt -> BftRaft nt et rt mt ()) -> BftRaft nt et rt mt ()
+clientHandleEvents :: (Binary nt, Binary et, Binary rt, Ord nt) => (rt -> Bftvioletabft nt et rt mt ()) -> Bftvioletabft nt et rt mt ()
 clientHandleEvents useResult = forever $ do
   e <- dequeueEvent
   case e of
@@ -85,13 +85,13 @@ clientHandleEvents useResult = forever $ do
               resetHeartbeatTimer
     _                  -> return ()
 
-setLeaderToFirst :: BftRaft nt et rt mt ()
+setLeaderToFirst :: Bftvioletabft nt et rt mt ()
 setLeaderToFirst = do
   nodes <- view (cfg.otherNodes)
   when (Set.null nodes) $ error "the client has no nodes to send requests to"
   currentLeader .= (Just $ Set.findMin nodes)
 
-setLeaderToNext :: Ord nt => BftRaft nt et rt mt ()
+setLeaderToNext :: Ord nt => Bftvioletabft nt et rt mt ()
 setLeaderToNext = do
   mlid <- use currentLeader
   nodes <- view (cfg.otherNodes)
@@ -101,7 +101,7 @@ setLeaderToNext = do
       Nothing   -> setLeaderToFirst
     Nothing -> setLeaderToFirst
 
-clientSendCommand :: (Binary nt, Binary et, Binary rt) => Command nt et -> BftRaft nt et rt mt ()
+clientSendCommand :: (Binary nt, Binary et, Binary rt) => Command nt et -> Bftvioletabft nt et rt mt ()
 clientSendCommand cmd@Command{..} = do
   mlid <- use currentLeader
   case mlid of
@@ -117,9 +117,9 @@ clientSendCommand cmd@Command{..} = do
       clientSendCommand cmd
 
 clientHandleCommandResponse :: (Binary nt, Binary et, Binary rt, Ord nt)
-                            => (rt -> BftRaft nt et rt mt ())
+                            => (rt -> Bftvioletabft nt et rt mt ())
                             -> CommandResponse nt rt
-                            -> BftRaft nt et rt mt ()
+                            -> Bftvioletabft nt et rt mt ()
 clientHandleCommandResponse useResult cmdr@CommandResponse{..} = do
   prs <- use pendingRequests
   valid <- verifyRPCWithKey (CMDR cmdr)
