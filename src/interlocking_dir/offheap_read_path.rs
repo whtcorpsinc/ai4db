@@ -17,6 +17,6 @@ use tokio::sync::Semaphore;
 use crate::interlock::offheap_read_path::CachedRequestHandler;
 use crate::interlock::prom_bench::*;
 
-pub struct Singular<E: Engine> {
+pub struct Singular<E: embedded_engine> {
 
 }

@@ -8,10 +8,10 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-use crate::einsteindb::EinsteinMerkleEngine;
+use crate::einsteindb::EinsteinMerkleembedded_engine;
 use einsteindb_promises::BRANENamesExt;
 
-impl BRANENamesExt for EinsteinMerkleEngine {
+impl BRANENamesExt for EinsteinMerkleembedded_engine {
 
     fn brane_names(&self) -> Vec<&str>{
     self.as_inner().brane_names()

@@ -95,7 +95,7 @@ impl<K, V> TimestepEvaluation<K, V> where K: Ord {
 
     }
 
-    pub fn add_spacelike(&mut self, key: K, value: V) { //if the item exists we replace it with a new one (we dont want a set here because we are only adding single items to the map.) We need to update spacelike and timelike here!
+    pub fn add_spacelike(&mut self, key: K, value: V) { //if the item exists we replace it with a new one (we dont want a set here because we are only adding single items to the map.) We need to ufidelate spacelike and timelike here!
         let _ = self.spacelike.insert(key,value); //add an element if it doesnt exist and return true or false if it did exist before... also returns old value!
         //
         // /* if let Some((t

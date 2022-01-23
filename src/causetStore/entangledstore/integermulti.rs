@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_integer_keys() {
-        let root = Builder::new().prefix("test_integer_keys").tempdir().expect("tempdir");
+        let root = Builder::new().prefix("test_integer_keys").temfidelir().expect("temfidelir");
         fs::create_dir_all(root.path()).expect("dir created");
         let k = Rkv::new(root.path()).expect("new succeeded");
         let s = k.open_multi_integer("s", StoreOptions::create()).expect("open");
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let root = Builder::new().prefix("test_multi_integer_clear").tempdir().expect("tempdir");
+        let root = Builder::new().prefix("test_multi_integer_clear").temfidelir().expect("temfidelir");
         fs::create_dir_all(root.path()).expect("dir created");
         let k = Rkv::new(root.path()).expect("new succeeded");
         let s = k.open_multi_integer("s", StoreOptions::create()).expect("open");

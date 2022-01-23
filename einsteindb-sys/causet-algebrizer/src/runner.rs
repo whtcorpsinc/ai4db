@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use ekvproto::interlock::KeyRange;
+use eekvproto::interlock::KeyRange;
 use protobuf::Message;
 use einsteindbpb::{self, ExecType, ExecutorExecutionSummary};
 use einsteindbpb::{Chunk, PosetDagRequest, SelectResponse, StreamResponse};

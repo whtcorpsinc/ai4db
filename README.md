@@ -14,7 +14,7 @@ EinsteinDB and MilevaDB interact with BerolinaSQL, PostgresQL for middle-out mem
 
 EinsteinDB is designed to be different from other databases because it supports Write-Optimized Copy-on-Write Semantics (WOSCOW), Repeatable Read isolation guarantees for HTAP, column cracking, and vectorized SIMD for OLAP/OLTP SparkQL streams.
 
-Update Oct 2021: We have partnered with OpenAI in San Francisco, wherein we have launched einst.a.i an Index Advisor and Expert System to help us from debugging, programming, testing, and deploying optimized rust, go, haskell, cython/python, et al. More info: www.einst.ai
+Ufidelate Oct 2021: We have partnered with OpenAI in San Francisco, wherein we have launched einst.a.i an Index Advisor and Expert System to help us from debugging, programming, testing, and deploying optimized rust, go, haskell, cython/python, et al. More info: www.einst.ai
 
 
 

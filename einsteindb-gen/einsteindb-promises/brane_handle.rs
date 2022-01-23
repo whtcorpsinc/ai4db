@@ -9,13 +9,13 @@
 // specific language governing permissions and limitations under the License.
 
 use crate::brane_options::foundationdbBlackBraneOptions;
-use crate::einsteindb::EinsteinMerkleEngine;
+use crate::einsteindb::EinsteinMerkleembedded_engine;
 use einsteindb_promises::BRANEHandle;
 use einsteindb_promises::BRANEHandleExt;
 use einsteindb_promises::{Error, Result};
 use einstein_merkle::BRANEHandle as RawBRANEHandle;
 
-impl BRANEHandleExt for EinsteinMerkleEngine {
+impl BRANEHandleExt for EinsteinMerkleembedded_engine {
 
     //The foundationdb instance gives us a datalog entity laden actor programmatic instance of
     //a group of columns; grouped by topic.

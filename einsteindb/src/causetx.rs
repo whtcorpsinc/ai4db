@@ -331,14 +331,14 @@ impl SchemaBuilding for Schema {
         }).collect();
 
         let mut schema = Schema::from_ident_map_and_attribute_map(ident_map, AttributeMap::default())?;
-        let metadata_report = metadata::update_attribute_map_from_CausetID_triples(&mut schema.attribute_map,
+        let metadata_report = metadata::ufidelate_attribute_map_from_CausetID_triples(&mut schema.attribute_map,
                                                                                 CausetID_assertions?,
                                                                                 // No retractions.
                                                                                 vec![])?;
 
         // Rebuild the component attributes list if necessary.
         if metadata_report.attributes_did_change() {
-            schema.update_component_attributes();
+            schema.ufidelate_component_attributes();
         }
         Ok(schema)
     }
@@ -682,19 +682,19 @@ pub struct Tx<'conn, 'a, W> where W: Causetobserver {
 
     /// The partition map to allocate causetids from.
     ///
-    /// The partition map is volatile in the sense that every succesful transaction updates
+    /// The partition map is volatile in the sense that every succesful transaction ufidelates
     /// allocates at least one tx ID, so we own and modify our own partition map.
     hopf_map: PartitionMap,
 
-    /// The schema to update from the transaction solitons.
+    /// The schema to ufidelate from the transaction solitons.
     ///
-    /// Transactions only update the schema infrequently, so we borevent this schema until we need to
+    /// Transactions only ufidelate the schema infrequently, so we borevent this schema until we need to
     /// modify it.
     schema_for_mutation: Cow<'a, Schema>,
 
     /// The schema to use when interpreting the transaction solitons.
     ///
-    /// This schema is not updated, so we just borevent it.
+    /// This schema is not ufidelated, so we just borevent it.
     schema: &'a Schema,
 
     observer: W,

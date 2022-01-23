@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use ekvproto::interlock::KeyRange;
+use eekvproto::interlock::KeyRange;
 use EinsteinDB_util::collections::HashSet;
 use einsteindbpb::ColumnInfo;
 use einsteindbpb::TableScan;
@@ -87,7 +87,7 @@ impl<S: Storage> TableScanExecutor<S> {
 mod tests {
     use std::i64;
 
-    use ekvproto::interlock::KeyRange;
+    use eekvproto::interlock::KeyRange;
     use einsteindbpb::{ColumnInfo, TableScan};
 
     use super::super::tests::*;

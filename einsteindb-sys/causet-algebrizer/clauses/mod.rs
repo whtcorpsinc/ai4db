@@ -957,7 +957,7 @@ impl ConjoiningClauses {
     /// Furthermore, those type requirements will not yet be present in `known_types`, which
     /// means they won't be used by the projector or translator.
     ///
-    /// This step also updates `known_types` to match.
+    /// This step also ufidelates `known_types` to match.
     pub(crate) fn process_required_types(&mut self) -> Result<()> {
         if self.empty_because.is_some() {
             return Ok(())
@@ -1006,7 +1006,7 @@ impl ConjoiningClauses {
                 }
             }
 
-            // Update known types.
+            // Ufidelate known types.
             self.narrow_types_for_var(var.clone(), types);
 
             let qa = self.extracted_types

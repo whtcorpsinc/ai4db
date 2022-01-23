@@ -1,9 +1,9 @@
 // Copyright 2016 EinsteinDB Project Authors. Licensed under Apache-2.0.
 
-use einsteindb_promises::{BRANEName, KvEngine};
-use ekvproto::metapb::Region;
-use ekvproto::FIDelpb::CheckPolicy;
-use ekvproto::violetabft_cmdpb::{violetabftCmdRequest, violetabftCmdResponse};
+use einsteindb_promises::{BRANEName, Kvembedded_engine};
+use eekvproto::metapb::Region;
+use eekvproto::FIDelpb::CheckPolicy;
+use eekvproto::violetabft_cmdpb::{violetabftCmdRequest, violetabftCmdResponse};
 use std::marker::PhantomData;
 use txn_types::TxnExtra;
 
@@ -290,7 +290,7 @@ where
 
 impl<E> InterlockHost<E>
 where
-    E: KvEngine,
+    E: Kvembedded_engine,
 {
     pub fn new<C: CasualRouter<E::Snapshot> + Clone + Send + 'static>(ch: C) -> InterlockHost<E> {
         let mut registry = Registry::default();
@@ -407,7 +407,7 @@ where
         &self,
         braneg: &'a Config,
         region: &Region,
-        engine: &E,
+        embedded_engine: &E,
         auto_split: bool,
         policy: CheckPolicy,
     ) -> SplitCheckerHost<'a, E> {
@@ -417,7 +417,7 @@ where
             &self.registry.split_check_observers,
             add_checker,
             &mut host,
-            engine,
+            embedded_engine,
             policy
         );
         host
@@ -513,9 +513,9 @@ mod tests {
     use std::sync::atomic::*;
     use std::sync::Arc;
 
-    use engine_foundationdb::foundationdbEngine;
-    use ekvproto::metapb::Region;
-    use ekvproto::violetabft_cmdpb::{
+    use embedded_engine_foundationdb::foundationdbembedded_engine;
+    use eekvproto::metapb::Region;
+    use eekvproto::violetabft_cmdpb::{
         AdminRequest, AdminResponse, violetabftCmdRequest, violetabftCmdResponse, Request, Response,
     };
 
@@ -644,7 +644,7 @@ mod tests {
 
     #[test]
     fn test_trigger_right_hook() {
-        let mut host = interlockHost::<foundationdbEngine>::default();
+        let mut host = interlockHost::<foundationdbembedded_engine>::default();
         let ob = Testinterlock::default();
         host.registry
             .register_admin_observer(1, BoxAdminObserver::new(ob.clone()));
@@ -706,7 +706,7 @@ mod tests {
 
     #[test]
     fn test_order() {
-        let mut host = interlockHost::<foundationdbEngine>::default();
+        let mut host = interlockHost::<foundationdbembedded_engine>::default();
 
         let ob1 = Testinterlock::default();
         host.registry

@@ -12,9 +12,9 @@
 
 use types::Value;
 
-///Runs insert, update, or delete operations on a target table from the results
+///Runs insert, ufidelate, or delete operations on a target table from the results
 ///of a join with a source table.
-///For example, synchronize two tables by inserting, updating, or deleting rows
+///For example, synchronize two tables by inserting, ufidelating, or deleting rows
 ///in one table based on differences found in the other table.
 
 pub fn merge(left: &Value, right: &Value) -> Option<Value> {

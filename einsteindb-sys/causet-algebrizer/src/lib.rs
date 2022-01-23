@@ -784,7 +784,7 @@ impl<T: Executor + ?Sized> Executor for Box<T> {
 pub mod tests {
     use super::{Executor, TableScanExecutor};
     use codec::prelude::NumberEncoder;
-    use ekvproto::interlock::KeyRange;
+    use eekvproto::interlock::KeyRange;
     use allegroeinstein-prolog-causet-sql::storage::test_fixture::FixtureStorage;
     use causet_algebrizer::MilevaDB_query_datatype::codec::{datum, table, Datum};
     use causet_algebrizer::MilevaDB_query_datatype::expr::EvalContext;

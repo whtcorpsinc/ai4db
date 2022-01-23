@@ -34,7 +34,7 @@ pub trait CachedAttributes {
     fn get_causetids_for_value(&self, attribute: Causetid, value: &TypedValue) -> Option<&BTreeSet<Causetid>>;
 }
 
-pub trait UpdateableCache<E> {
-    fn update<I>(&mut self, schema: &Schema, retractions: I, assertions: I) -> Result<(), E>
+pub trait UfidelateableCache<E> {
+    fn ufidelate<I>(&mut self, schema: &Schema, retractions: I, assertions: I) -> Result<(), E>
     where I: Iterator<Item=(Causetid, Causetid, TypedValue)>;
 }

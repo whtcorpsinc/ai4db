@@ -8,7 +8,7 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-use crate::einsteindb::EinsteinMerkleEngine;
+use crate::einsteindb::EinsteinMerkleembedded_engine;
 use einsteindbgen::einsteindb_promises::{
     DBOptions,
     DBOptionsExt,
@@ -18,7 +18,7 @@ use einsteindbgen::einsteindb_promises::{
 use einstein_merkle::DBOptions as RawDBOptions;
 use einstein_merkle::EinsteinMerkleDBOptions as RawEinsteinMerkleDBOptions;
 
-impl DBOptionsExt for EinsteinMerkleEngine {
+impl DBOptionsExt for EinsteinMerkleembedded_engine {
     type DBOptions = EinsteinMerkleOptions;
 
     fn get_db_options(&self) -> Self::DBOptions {

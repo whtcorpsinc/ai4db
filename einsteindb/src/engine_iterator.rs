@@ -4,31 +4,31 @@ use einsteindb_promises::{self, Error, Result};
 use foundationdb::{DBIterator, SeekKey as RawSeekKey, DB};
 
 
-pub struct FoundationdbEngineIterator(DBIterator<Arc<DB>>);
+pub struct Foundationdbembedded_engineIterator(DBIterator<Arc<DB>>);
 
-impl FoundationdbEngineIterator {
-    pub fn from_raw(iter: DBIterator<Arc<DB>>) -> FoundationdbEngineIterator {
-        FoundationdbEngineIterator(iter)
+impl Foundationdbembedded_engineIterator {
+    pub fn from_raw(iter: DBIterator<Arc<DB>>) -> Foundationdbembedded_engineIterator {
+        Foundationdbembedded_engineIterator(iter)
     }
 }
 
-impl einsteindb_promises::Iterator for FoundationdbEngineIterator {
+impl einsteindb_promises::Iterator for Foundationdbembedded_engineIterator {
     fn seek(&mut self, key: einsteindb_promises::SeekKey) -> Result<bool> {
         let k: FoundationdbSeekKey = key.into();
-        self.0.seek(k.into_raw()).map_err(Error::Engine)
+        self.0.seek(k.into_raw()).map_err(Error::embedded_engine)
     }
 
     fn seek_for_prev(&mut self, key: einsteindb_promises::SeekKey) -> Result<bool> {
         let k: FoundationdbSeekKey = key.into();
-        self.0.seek_for_prev(k.into_raw()).map_err(Error::Engine)
+        self.0.seek_for_prev(k.into_raw()).map_err(Error::embedded_engine)
     }
 
     fn prev(&mut self) -> Result<bool> {
-        self.0.prev().map_err(Error::Engine)
+        self.0.prev().map_err(Error::embedded_engine)
     }
 
     fn next(&mut self) -> Result<bool> {
-        self.0.next().map_err(Error::Engine)
+        self.0.next().map_err(Error::embedded_engine)
     }
 
     fn key(&self) -> &[u8] {
@@ -40,7 +40,7 @@ impl einsteindb_promises::Iterator for FoundationdbEngineIterator {
     }
 
     fn valid(&self) -> Result<bool> {
-        self.0.valid().map_err(Error::Engine)
+        self.0.valid().map_err(Error::embedded_engine)
     }
 }
 
@@ -79,7 +79,7 @@ impl<'a> From<einsteindb_promises::SeekKey<'a>> for FoundationdbSeekKey<'a> {
 }
 
 //use generic associated types to rewrite the function above using &DB instead of Arc<DB>
-//impl<'a> Iterator for FoundationdbEngineIterator<'a> {
+//impl<'a> Iterator for Foundationdbembedded_engineIterator<'a> {
 //    type Item = (Vec<u8>, Vec<u8>);
 //
 //    fn next(&mut self) -> Option<Self::Item> {
@@ -87,7 +87,7 @@ impl<'a> From<einsteindb_promises::SeekKey<'a>> for FoundationdbSeekKey<'a> {
 //    }
 //}
 
-    impl Iterator for FoundationdbEngineIterator {
+    impl Iterator for Foundationdbembedded_engineIterator {
         type Item = (Vec<u8>, Vec<u8>);
 
         fn next(&mut self) -> Option<Self::Item> {
@@ -95,7 +95,7 @@ impl<'a> From<einsteindb_promises::SeekKey<'a>> for FoundationdbSeekKey<'a> {
         }
     }
 
-    impl einsteindb_promises::Iterator for FoundationdbEngineIterator {
+    impl einsteindb_promises::Iterator for Foundationdbembedded_engineIterator {
         fn seek(&mut self, seek_key: SeekKey) -> Result<()> {
             match seek_key {
                 SeekKey::Start => self.0.seek(RawSeekKey::Start),
@@ -138,7 +138,7 @@ impl<'a> From<einsteindb_promises::SeekKey<'a>> for FoundationdbSeekKey<'a> {
             self.0.value()
         }
     }
-    impl einsteindb_promises::SeekKeyCodec for FoundationdbEngineIterator {
+    impl einsteindb_promises::SeekKeyCodec for Foundationdbembedded_engineIterator {
         fn encode_seek_key(&mut self, key: &[u8]) -> Result<()> {
             self.0.seek(RawSeekKey::Key(key))
         }
@@ -146,26 +146,26 @@ impl<'a> From<einsteindb_promises::SeekKey<'a>> for FoundationdbSeekKey<'a> {
 
     impl einsteindb_promises::Error for Error {}
 
-    impl einsteindb_promises::EngineIterator for FoundationdbEngineIterator {
+    impl einsteindb_promises::embedded_engineIterator for Foundationdbembedded_engineIterator {
         fn encode_seek_key(&mut self, key: &[u8]) -> Result<()> {
             self.0.seek(RawSeeKey::Key(key))
         }
     }
     impl einsteindb_promises::Error for Error {}
 
-    impl einsteindb_promises::EngineIterator for FoundationdbEngineIterator {
-        fn new(db: Arc<DB>, readopts: ReadOptions) -> Result<FoundationdbEngineIterator> {
+    impl einsteindb_promises::embedded_engineIterator for Foundationdbembedded_engineIterator {
+        fn new(db: Arc<DB>, readopts: ReadOptions) -> Result<Foundationdbembedded_engineIterator> {
             let iter = db.iter(readopts);
-            Ok(FoundationdbEngineIterator::from_raw(iter))
+            Ok(Foundationdbembedded_engineIterator::from_raw(iter))
         }
 
         fn new_cf(
             db: Arc<DB>,
             cf_handle: &CFHandle,
             readopts: ReadOptions,
-        ) -> Result<FoundationdbEngineIterator> {
+        ) -> Result<Foundationdbembedded_engineIterator> {
             let iter = db.iter_cf(cf_handle, readopts);
-            Ok(FoundationdbEngineIterator::from_raw(iter))
+            Ok(Foundationdbembedded_engineIterator::from_raw(iter))
         }
     }
 

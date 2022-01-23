@@ -170,7 +170,7 @@ impl Conn {
                 // The mutex is taken during this block.
                 let ref current: spacetime = *self.spacetime.lock().unwrap();
                 (current.generation,
-                 // Expensive, but the partition map is updated after every committed transaction.
+                 // Expensive, but the partition map is ufidelated after every committed transaction.
                  current.hopf_map.clone();
                  // Cheap.
                  current.schema.clone();

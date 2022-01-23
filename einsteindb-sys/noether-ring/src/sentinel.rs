@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 #[braneg(feature = "prost-codec")]
-use ekvproto::ccpb::{
+use eekvproto::ccpb::{
     error::DuplicateRequest as ErrorDuplicateRequest,
     event::{
         row::OpType as EventRowOpType, Entries as EventEntries, Event as Event_oneof_event,
@@ -14,14 +14,14 @@ use ekvproto::ccpb::{
     Error as EventError, Event,
 };
 #[braneg(not(feature = "prost-codec"))]
-use ekvproto::ccpb::{
+use eekvproto::ccpb::{
     Error as EventError, ErrorDuplicateRequest, Event, EventEntries, EventLogType, EventRow,
     EventRowOpType, Event_oneof_event,
 };
-use ekvproto::errorpb;
+use eekvproto::errorpb;
 
-use ekvproto::metapb::{Region, RegionEpoch};
-use ekvproto::violetabft_cmdpb::{AdminCmdType, AdminRequest, AdminResponse, CmdType, Request};
+use eekvproto::metapb::{Region, RegionEpoch};
+use eekvproto::violetabft_cmdpb::{AdminCmdType, AdminRequest, AdminResponse, CmdType, Request};
 use violetabftstore::interlock::{Cmd, CmdBatch};
 use violetabftstore::store::fsm::ObserveID;
 use violetabftstore::store::util::compare_region_epoch;
@@ -749,8 +749,8 @@ fn decode_default(value: Vec<u8>, row: &mut EventRow) {
 mod tests {
     use super::*;
     use futures::{Future, Stream};
-    use ekvproto::errorpb::Error as ErrorHeader;
-    use ekvproto::metapb::Region;
+    use eekvproto::errorpb::Error as ErrorHeader;
+    use eekvproto::metapb::Region;
     use std::cell::Cell;
     use EinsteinDB::storage::mvcc::test_util::*;
     use EinsteinDB_util::mpsc::batch::{self, BatchReceiver, VecCollector};

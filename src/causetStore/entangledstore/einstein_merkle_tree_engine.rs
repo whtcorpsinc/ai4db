@@ -18,30 +18,30 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::ops::RangeBounds;
 use std::sync::{Arc, RwLock};
 
-use einstein_merkle_engine::EinsteinMerkleEngine;
-use einstein_merkle_engine_promises::{BraneName, IterOptions, ReadOptions, BRANE_DEFAULT, BRANE_LOCK, BRANE_WRITE};
-use ekvproto::kvrpcpb::Context;
+use einstein_merkle_embedded_engine::EinsteinMerkleembedded_engine;
+use einstein_merkle_embedded_engine_promises::{BraneName, IterOptions, ReadOptions, BRANE_DEFAULT, BRANE_LOCK, BRANE_WRITE};
+use eekvproto::kvrpcpb::Context;
 use txn_types::{Key, Value};
 
 use crate::causetStorage::kv::{
-    Callback as EngineCallback, CbContext, Cursor, Engine, Error as EngineError,
-    ErrorInner as EngineErrorInner, Iterator, Modify, Result as EngineResult, ScanMode, Snapshot,
+    Callback as embedded_engineCallback, CbContext, Cursor, embedded_engine, Error as embedded_engineError,
+    ErrorInner as embedded_engineErrorInner, Iterator, Modify, Result as embedded_engineResult, ScanMode, Snapshot,
     WriteData,
 };
 use EinsteinDB_util::time::ThreadReadId;
 
 type RwLockTree = RwLock<BTreeMap<Key, Value>>;
 
-/// The BTreeEngine(based on `BTreeMap`) is in memory and only used in tests and benchmarks.
+/// The BTreeembedded_engine(based on `BTreeMap`) is in memory and only used in tests and benchmarks.
 /// Note: The `snapshot()` and `async_snapshot()` methods are fake, the returned snapshot is not isolated,
 /// they will be affected by the later modifies.
 #[derive(Clone)]
-pub struct BTreeEngine {
+pub struct BTreeembedded_engine {
     brane_names: Vec<BraneName>,
     brane_contents: Vec<Arc<RwLockTree>>,
 }
 
-impl BTreeEngine {
+impl BTreeembedded_engine {
     pub fn new(cfs: &[BraneName]) -> Self {
         let mut brane_names = vec![];
         let mut brane_contents = vec![];
@@ -73,25 +73,25 @@ impl BTreeEngine {
     }
 }
 
-impl Default for BTreeEngine {
+impl Default for BTreeembedded_engine {
     fn default() -> Self {
         let cfs = &[BRANE_WRITE, BRANE_DEFAULT, BRANE_LOCK];
         Self::new(cfs)
     }
 }
 
-impl Engine for BTreeEngine {
-    type Snap = BTreeEngineSnapshot;
+impl embedded_engine for BTreeembedded_engine {
+    type Snap = BTreeembedded_engineSnapshot;
 
-    fn kv_engine(&self) -> EinsteinMerkleEngine {
+    fn kv_embedded_engine(&self) -> EinsteinMerkleembedded_engine {
         unimplemented!();
     }
 
-    fn snapshot_on_kv_engine(&self, _: &[u8], _: &[u8]) -> EngineResult<Self::Snap> {
+    fn snapshot_on_kv_embedded_engine(&self, _: &[u8], _: &[u8]) -> embedded_engineResult<Self::Snap> {
         unimplemented!();
     }
 
-    fn modify_on_kv_engine(&self, _: Vec<Modify>) -> EngineResult<()> {
+    fn modify_on_kv_embedded_engine(&self, _: Vec<Modify>) -> embedded_engineResult<()> {
         unimplemented!();
     }
 
@@ -99,10 +99,10 @@ impl Engine for BTreeEngine {
         &self,
         _ctx: &Context,
         batch: WriteData,
-        cb: EngineCallback<()>,
-    ) -> EngineResult<()> {
+        cb: embedded_engineCallback<()>,
+    ) -> embedded_engineResult<()> {
         if batch.modifies.is_empty() {
-            return Err(EngineError::from(EngineErrorInner::EmptyRequest));
+            return Err(embedded_engineError::from(embedded_engineErrorInner::EmptyRequest));
         }
         cb((CbContext::new(), write_modifies(&self, batch.modifies)));
 
@@ -114,27 +114,27 @@ impl Engine for BTreeEngine {
         &self,
         _ctx: &Context,
         _: Option<ThreadReadId>,
-        cb: EngineCallback<Self::Snap>,
-    ) -> EngineResult<()> {
-        cb((CbContext::new(), Ok(BTreeEngineSnapshot::new(&self))));
+        cb: embedded_engineCallback<Self::Snap>,
+    ) -> embedded_engineResult<()> {
+        cb((CbContext::new(), Ok(BTreeembedded_engineSnapshot::new(&self))));
         Ok(())
     }
 }
 
-impl Display for BTreeEngine {
+impl Display for BTreeembedded_engine {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "BTreeEngine",)
+        write!(f, "BTreeembedded_engine",)
     }
 }
 
-impl Debug for BTreeEngine {
+impl Debug for BTreeembedded_engine {
     // TODO: Provide more debug info.
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "BTreeEngine",)
+        write!(f, "BTreeembedded_engine",)
     }
 }
 
-pub struct BTreeEngineIterator {
+pub struct BTreeembedded_engineIterator {
     tree: Arc<RwLockTree>,
     cur_key: Option<Key>,
     cur_value: Option<Value>,
@@ -142,8 +142,8 @@ pub struct BTreeEngineIterator {
     bounds: (Bound<Key>, Bound<Key>),
 }
 
-impl BTreeEngineIterator {
-    pub fn new(tree: Arc<RwLockTree>, iter_opt: IterOptions) -> BTreeEngineIterator {
+impl BTreeembedded_engineIterator {
+    pub fn new(tree: Arc<RwLockTree>, iter_opt: IterOptions) -> BTreeembedded_engineIterator {
         let lower_bound = match iter_opt.lower_bound() {
             None => Unbounded,
             Some(key) => Included(Key::from_raw(key)),
@@ -188,39 +188,39 @@ impl BTreeEngineIterator {
     }
 }
 
-impl Iterator for BTreeEngineIterator {
-    fn next(&mut self) -> EngineResult<bool> {
+impl Iterator for BTreeembedded_engineIterator {
+    fn next(&mut self) -> embedded_engineResult<bool> {
         let range = (Excluded(self.cur_key.clone().unwrap()), Unbounded);
         Ok(self.seek_to_range_endpoint(range, true))
     }
 
-    fn prev(&mut self) -> EngineResult<bool> {
+    fn prev(&mut self) -> embedded_engineResult<bool> {
         let range = (Unbounded, Excluded(self.cur_key.clone().unwrap()));
         Ok(self.seek_to_range_endpoint(range, false))
     }
 
-    fn seek(&mut self, key: &Key) -> EngineResult<bool> {
+    fn seek(&mut self, key: &Key) -> embedded_engineResult<bool> {
         let range = (Included(key.clone()), Unbounded);
         Ok(self.seek_to_range_endpoint(range, true))
     }
 
-    fn seek_for_prev(&mut self, key: &Key) -> EngineResult<bool> {
+    fn seek_for_prev(&mut self, key: &Key) -> embedded_engineResult<bool> {
         let range = (Unbounded, Included(key.clone()));
         Ok(self.seek_to_range_endpoint(range, false))
     }
 
-    fn seek_to_first(&mut self) -> EngineResult<bool> {
+    fn seek_to_first(&mut self) -> embedded_engineResult<bool> {
         let range = (self.bounds.0.clone(), self.bounds.1.clone());
         Ok(self.seek_to_range_endpoint(range, true))
     }
 
-    fn seek_to_last(&mut self) -> EngineResult<bool> {
+    fn seek_to_last(&mut self) -> embedded_engineResult<bool> {
         let range = (self.bounds.0.clone(), self.bounds.1.clone());
         Ok(self.seek_to_range_endpoint(range, false))
     }
 
     #[inline]
-    fn valid(&self) -> EngineResult<bool> {
+    fn valid(&self) -> embedded_engineResult<bool> {
         Ok(self.valid)
     }
 
@@ -235,14 +235,14 @@ impl Iterator for BTreeEngineIterator {
     }
 }
 
-impl Snapshot for BTreeEngineSnapshot {
-    type Iter = BTreeEngineIterator;
+impl Snapshot for BTreeembedded_engineSnapshot {
+    type Iter = BTreeembedded_engineIterator;
 
-    fn get(&self, key: &Key) -> EngineResult<Option<Value>> {
+    fn get(&self, key: &Key) -> embedded_engineResult<Option<Value>> {
         self.get_brane(BRANE_DEFAULT, key)
     }
-    fn get_brane(&self, brane: BraneName, key: &Key) -> EngineResult<Option<Value>> {
-        let tree_cf = self.inner_engine.get_brane(brane);
+    fn get_brane(&self, brane: BraneName, key: &Key) -> embedded_engineResult<Option<Value>> {
+        let tree_cf = self.inner_embedded_engine.get_brane(brane);
         let tree = tree_cf.read().unwrap();
         let v = tree.get(key);
         match v {
@@ -250,10 +250,10 @@ impl Snapshot for BTreeEngineSnapshot {
             Some(v) => Ok(Some(v.clone())),
         }
     }
-    fn get_brane_opt(&self, _: ReadOptions, brane: BraneName, key: &Key) -> EngineResult<Option<Value>> {
+    fn get_brane_opt(&self, _: ReadOptions, brane: BraneName, key: &Key) -> embedded_engineResult<Option<Value>> {
         self.get_brane(brane, key)
     }
-    fn iter(&self, iter_opt: IterOptions, mode: ScanMode) -> EngineResult<Cursor<Self::Iter>> {
+    fn iter(&self, iter_opt: IterOptions, mode: ScanMode) -> embedded_engineResult<Cursor<Self::Iter>> {
         self.iter_cf(BRANE_DEFAULT, iter_opt, mode)
     }
     #[inline]
@@ -262,35 +262,35 @@ impl Snapshot for BTreeEngineSnapshot {
         brane: BraneName,
         iter_opt: IterOptions,
         mode: ScanMode,
-    ) -> EngineResult<Cursor<Self::Iter>> {
-        let tree = self.inner_engine.get_brane(brane);
+    ) -> embedded_engineResult<Cursor<Self::Iter>> {
+        let tree = self.inner_embedded_engine.get_brane(brane);
 
-        Ok(Cursor::new(BTreeEngineIterator::new(tree, iter_opt), mode))
+        Ok(Cursor::new(BTreeembedded_engineIterator::new(tree, iter_opt), mode))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct BTreeEngineSnapshot {
-    inner_engine: Arc<BTreeEngine>,
+pub struct BTreeembedded_engineSnapshot {
+    inner_embedded_engine: Arc<BTreeembedded_engine>,
 }
 
-impl BTreeEngineSnapshot {
-    pub fn new(engine: &BTreeEngine) -> Self {
+impl BTreeembedded_engineSnapshot {
+    pub fn new(embedded_engine: &BTreeembedded_engine) -> Self {
         Self {
-            inner_engine: Arc::new(engine.clone()),
+            inner_embedded_engine: Arc::new(embedded_engine.clone()),
         }
     }
 }
 
-fn write_modifies(engine: &BTreeEngine, modifies: Vec<Modify>) -> EngineResult<()> {
+fn write_modifies(embedded_engine: &BTreeembedded_engine, modifies: Vec<Modify>) -> embedded_engineResult<()> {
     for rev in modifies {
         match rev {
             Modify::Delete(brane, k) => {
-                let brane_tree = engine.get_brane(brane);
+                let brane_tree = embedded_engine.get_brane(brane);
                 brane_tree.write().unwrap().remove(&k);
             }
             Modify::Put(brane, k, v) => {
-                let brane_tree = engine.get_brane(brane);
+                let brane_tree = embedded_engine.get_brane(brane);
                 brane_tree.write().unwrap().insert(k, v);
             }
 
@@ -307,26 +307,26 @@ pub mod tests {
     use super::*;
 
     #[test]
-    fn test_btree_engine() {
-        let engine = BTreeEngine::new(TEST_ENGINE_CFS);
-        test_base_curd_options(&engine)
+    fn test_btree_embedded_engine() {
+        let embedded_engine = BTreeembedded_engine::new(TEST_embedded_engine_CFS);
+        test_base_curd_options(&embedded_engine)
     }
 
     #[test]
-    fn test_linear_of_btree_engine() {
-        let engine = BTreeEngine::default();
-        test_linear(&engine);
+    fn test_linear_of_btree_embedded_engine() {
+        let embedded_engine = BTreeembedded_engine::default();
+        test_linear(&embedded_engine);
     }
 
     #[test]
-    fn test_statistic_of_btree_engine() {
-        let engine = BTreeEngine::default();
-        test_cfs_statistics(&engine);
+    fn test_statistic_of_btree_embedded_engine() {
+        let embedded_engine = BTreeembedded_engine::default();
+        test_cfs_statistics(&embedded_engine);
     }
 
     #[test]
-    fn test_bounds_of_btree_engine() {
-        let engine = BTreeEngine::default();
+    fn test_bounds_of_btree_embedded_engine() {
+        let embedded_engine = BTreeembedded_engine::default();
         let test_data = vec![
             (b"a1".to_vec(), b"v1".to_vec()),
             (b"a3".to_vec(), b"v3".to_vec()),
@@ -334,9 +334,9 @@ pub mod tests {
             (b"a7".to_vec(), b"v7".to_vec()),
         ];
         for (k, v) in &test_data {
-            must_put(&engine, k.as_slice(), v.as_slice());
+            must_put(&embedded_engine, k.as_slice(), v.as_slice());
         }
-        let snap = engine.snapshot(&Context::default()).unwrap();
+        let snap = embedded_engine.snapshot(&Context::default()).unwrap();
         let mut statistics = CfStatistics::default();
 
         // lower bound > upper bound, seek() returns false.
@@ -376,7 +376,7 @@ pub mod tests {
 
     #[test]
     fn test_iterator() {
-        let engine = BTreeEngine::default();
+        let embedded_engine = BTreeembedded_engine::default();
         let test_data = vec![
             (b"a1".to_vec(), b"v1".to_vec()),
             (b"a3".to_vec(), b"v3".to_vec()),
@@ -384,12 +384,12 @@ pub mod tests {
             (b"a7".to_vec(), b"v7".to_vec()),
         ];
         for (k, v) in &test_data {
-            must_put(&engine, k.as_slice(), v.as_slice());
+            must_put(&embedded_engine, k.as_slice(), v.as_slice());
         }
 
         let iter_op = IterOptions::default();
-        let tree = engine.get_brane(BRANE_DEFAULT);
-        let mut iter = BTreeEngineIterator::new(tree, iter_op);
+        let tree = embedded_engine.get_brane(BRANE_DEFAULT);
+        let mut iter = BTreeembedded_engineIterator::new(tree, iter_op);
         assert!(!iter.valid().unwrap());
 
         assert!(iter.seek_to_first().unwrap());
@@ -421,7 +421,7 @@ pub mod tests {
 
     #[test]
     fn test_get_not_exist_cf() {
-        let engine = BTreeEngine::new(&[]);
-        assert!(::panic_hook::recover_safe(|| engine.get_brane("not_exist_cf")).is_err());
+        let embedded_engine = BTreeembedded_engine::new(&[]);
+        assert!(::panic_hook::recover_safe(|| embedded_engine.get_brane("not_exist_cf")).is_err());
     }
 }

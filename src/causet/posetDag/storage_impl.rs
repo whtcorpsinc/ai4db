@@ -3,7 +3,7 @@ mod storage_impl;
 pub use self::storage_impl::EinsteinDBStorage;
 
 use async_trait::async_trait;
-use ekvproto::interlock::{KeyRange, Response};
+use eekvproto::interlock::{KeyRange, Response};
 use protobuf::Message;
 use allegroeinstein-prolog-causet-sql::storage::IntervalRange;
 use fidelpb::{PosetDagRequest, SelectResponse, StreamResponse};

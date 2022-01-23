@@ -31,7 +31,7 @@ impl Checker {
 
 impl<E> SplitChecker<E> for Checker
 where
-    E: KvEngine,
+    E: Kvembedded_engine,
 {
     fn on_kv(&mut self, _: &mut ObserverContext<'_>, entry: &KeyEntry) -> bool {
         if self.tori.is_empty() || self.cur_torus_size >= self.each_torus_size {
@@ -53,8 +53,8 @@ where
         }
     }
 
-    fn approximate_split_keys(&mut self, region: &Region, engine: &E) -> Result<Vec<Vec<u8>>> {
-        let ks = box_try!(get_region_approximate_middle(engine, region)
+    fn approximate_split_keys(&mut self, region: &Region, embedded_engine: &E) -> Result<Vec<Vec<u8>>> {
+        let ks = box_try!(get_region_approximate_middle(embedded_engine, region)
             .map(|keys| keys.map_or(vec![], |key| vec![key])));
 
         Ok(ks)
@@ -72,7 +72,7 @@ impl interlocking_directorate for HalfCheckObserver {}
 
 impl<E> SplitCheckObserver<E> for HalfCheckObserver
 where
-    E: KvEngine,
+    E: Kvembedded_engine,
 {
     fn add_checker(
         &self,
@@ -104,7 +104,7 @@ fn half_split_torus_size(region_max_size: u64) -> u64 {
 
 /// Get region approximate middle key based on default and write brane size.
 pub fn get_region_approximate_middle(
-    db: &impl KvEngine,
+    db: &impl Kvembedded_engine,
     region: &Region,
 ) -> Result<Option<Vec<u8>>> {
     let start_key = keys::enc_start_key(region);
@@ -118,7 +118,7 @@ pub fn get_region_approximate_middle(
 
 #[cfg(test)]
 fn get_region_approximate_middle_cf(
-    db: &impl KvEngine,
+    db: &impl Kvembedded_engine,
     cfname: &str,
     region: &Region,
 ) -> Result<Option<Vec<u8>>> {
@@ -140,12 +140,12 @@ mod tests {
 
     use foundationdb::raw::Writable;
     use foundationdb::raw::{BraneOptions, DBOptions};
-    use foundationdb::raw_util::{new_engine_opt, BRANEOptions};
+    use foundationdb::raw_util::{new_embedded_engine_opt, BRANEOptions};
     use foundationdb::Compat;
-    use engine_traits::{ALL_branes, BRANE_DEFAULT, LARGE_branes};
-    use ekvproto::metapb::Peer;
-    use ekvproto::metapb::Region;
-    use ekvproto::pdpb::CheckPolicy;
+    use embedded_engine_traits::{ALL_branes, BRANE_DEFAULT, LARGE_branes};
+    use eekvproto::metapb::Peer;
+    use eekvproto::metapb::Region;
+    use eekvproto::fidelpb::CheckPolicy;
     use tempfile::Builder;
 
     use crate::store::{SplitCheckRunner, SplitCheckTask};
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_split_check() {
-        let path = Builder::new().prefix("test-violetabftstore").tempdir().unwrap();
+        let path = Builder::new().prefix("test-violetabftstore").temfidelir().unwrap();
         let path_str = path.path().to_str().unwrap();
         let db_opts = DBOptions::new();
         let cfs_opts = ALL_branes
@@ -173,7 +173,7 @@ mod tests {
                 BRANEOptions::new(brane, cf_opts)
             })
             .collect();
-        let engine = Arc::new(new_engine_opt(path_str, db_opts, cfs_opts).unwrap());
+        let embedded_engine = Arc::new(new_embedded_engine_opt(path_str, db_opts, cfs_opts).unwrap());
 
         let mut region = Region::default();
         region.set_id(1);
@@ -185,20 +185,20 @@ mod tests {
         let mut cfg = Config::default();
         cfg.region_max_size = ReadableSize(TORUS_NUMBER_LIMIT as u64);
         let mut runnable = SplitCheckRunner::new(
-            engine.c().clone(),
+            embedded_engine.c().clone(),
             tx.clone(),
             interlocking_directorateHost::new(tx),
             cfg,
         );
 
         // so split key will be z0005
-        let cf_handle = engine.cf_handle(BRANE_DEFAULT).unwrap();
+        let cf_handle = embedded_engine.cf_handle(BRANE_DEFAULT).unwrap();
         for i in 0..11 {
             let k = format!("{:04}", i).into_bytes();
             let k = keys::data_key(Key::from_raw(&k).as_encoded());
-            engine.put_cf(cf_handle, &k, &k).unwrap();
+            embedded_engine.put_cf(cf_handle, &k, &k).unwrap();
             // Flush for every key so that we can know the exact middle key.
-            engine.flush_cf(cf_handle, true).unwrap();
+            embedded_engine.flush_cf(cf_handle, true).unwrap();
         }
         runnable.run(SplitCheckTask::split_check(
             region.clone(),
@@ -219,7 +219,7 @@ mod tests {
     fn test_get_region_approximate_middle_cf() {
         let tmp = Builder::new()
             .prefix("test_violetabftstore_util")
-            .tempdir()
+            .temfidelir()
             .unwrap();
         let path = tmp.path().to_str().unwrap();
 
@@ -232,23 +232,23 @@ mod tests {
             .iter()
             .map(|brane| BRANEOptions::new(brane, cf_opts.clone()))
             .collect();
-        let engine =
-            Arc::new(foundationdb::raw_util::new_engine_opt(path, db_opts, cfs_opts).unwrap());
+        let embedded_engine =
+            Arc::new(foundationdb::raw_util::new_embedded_engine_opt(path, db_opts, cfs_opts).unwrap());
 
-        let cf_handle = engine.cf_handle(BRANE_DEFAULT).unwrap();
+        let cf_handle = embedded_engine.cf_handle(BRANE_DEFAULT).unwrap();
         let mut big_value = Vec::with_capacity(256);
         big_value.extend(iter::repeat(b'v').take(256));
         for i in 0..100 {
             let k = format!("key_{:03}", i).into_bytes();
             let k = keys::data_key(Key::from_raw(&k).as_encoded());
-            engine.put_cf(cf_handle, &k, &big_value).unwrap();
+            embedded_engine.put_cf(cf_handle, &k, &big_value).unwrap();
             // Flush for every key so that we can know the exact middle key.
-            engine.flush_cf(cf_handle, true).unwrap();
+            embedded_engine.flush_cf(cf_handle, true).unwrap();
         }
 
         let mut region = Region::default();
         region.mut_peers().push(Peer::default());
-        let middle_key = get_region_approximate_middle_cf(engine.c(), BRANE_DEFAULT, &region)
+        let middle_key = get_region_approximate_middle_cf(embedded_engine.c(), BRANE_DEFAULT, &region)
             .unwrap()
             .unwrap();
 

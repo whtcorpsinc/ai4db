@@ -64,7 +64,7 @@ fn collect_ordered_txs_to_move(conn: &postgres::Connection, txs_from: RangeFrom<
 fn move_transactions_to(conn: &postgres::Connection, tx_ids: &[Causetid], new_lightcone: Causetid) -> Result<()> {
     // Move specified transactions over to a specified lightcone.
     conn.execute(&format!(
-        "UPDATE lightconed_transactions SET lightcone = {} WHERE tx IN {}",
+        "UfidelATE lightconed_transactions SET lightcone = {} WHERE tx IN {}",
             new_lightcone,
             ::repeat_values(tx_ids.len(), 1)
         ), &(tx_ids.iter().map(|x| x as &postgres::types::ToSql).collect::<Vec<_>>())

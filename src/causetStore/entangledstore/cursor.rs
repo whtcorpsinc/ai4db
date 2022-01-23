@@ -17,8 +17,8 @@ use std::cell::Cell;
 use std::cmp::Ordering;
 use std::ops::Bound;
 
-use einstein_merkle_engine_promises::BraneName;
-use einsteincucu_merkle_engine_promises::{IterOptions, DATA_KEY_PREFIX_LEN};
+use einstein_merkle_embedded_engine_promises::BraneName;
+use einsteincucu_merkle_embedded_engine_promises::{IterOptions, DATA_KEY_PREFIX_LEN};
 use EinsteinDB_util::keybuilder::KeyBuilder;
 use EinsteinDB_util::metrics::CRITICAL_ERROR;
 use EinsteinDB_util::{panic_when_unexpected_key_or_data, set_panic_mark};
@@ -264,7 +264,7 @@ impl<I: Iterator> Cursor<I> {
         }
 
         if self.key(statistics) == &**key.as_encoded() {
-            // should not update min_key here. otherwise reverse_seek_le may not
+            // should not ufidelate min_key here. otherwise reverse_seek_le may not
             // work as expected.
             return Ok(self.prev(statistics));
         }
@@ -511,19 +511,19 @@ impl<'a, S: 'a + Snapshot> CursorBuilder<'a, S> {
 
 #[cfg(test)]
 mod tests {
-    use einstein_merkle_engine::{EinsteinMerkleEngine, EinsteinMerkleSnapshot};
-    use einstein_merkle_engine_promises::{IterOptions, KvEngines, SyncMutable};
+    use einstein_merkle_embedded_engine::{EinsteinMerkleembedded_engine, EinsteinMerkleSnapshot};
+    use einstein_merkle_embedded_engine_promises::{IterOptions, Kvembedded_engines, SyncMutable};
     use keys::data_key;
-    use ekvproto::metapb::{Peer, Region};
+    use eekvproto::metapb::{Peer, Region};
     use tempfile::Builder;
     use txn_types::Key;
 
     use crate::causetStorage::{CfStatistics, Cursor, ScanMode};
-    use violetabftstore::store::{new_temp_engine, RegionSnapshot};
+    use violetabftstore::store::{new_temp_embedded_engine, RegionSnapshot};
 
     type DataSet = Vec<(Vec<u8>, Vec<u8>)>;
 
-    fn load_default_dataset(engines: KvEngines<EinsteinMerkleEngine, EinsteinMerkleEngine>) -> (Region, DataSet) {
+    fn load_default_dataset(embedded_engines: Kvembedded_engines<EinsteinMerkleembedded_engine, EinsteinMerkleembedded_engine>) -> (Region, DataSet) {
         let mut r = Region::default();
         r.mut_peers().push(Peer::default());
         r.set_id(10);
@@ -539,18 +539,18 @@ mod tests {
         ];
 
         for &(ref k, ref v) in &base_data {
-            engines.kv.put(&data_key(k), v).unwrap();
+            embedded_engines.kv.put(&data_key(k), v).unwrap();
         }
         (r, base_data)
     }
 
     #[test]
     fn test_reverse_iterate() {
-        let path = Builder::new().prefix("test-entangledstore").tempdir().unwrap();
-        let engines = new_temp_engine(&path);
-        let (region, test_data) = load_default_dataset(engines.clone());
+        let path = Builder::new().prefix("test-entangledstore").temfidelir().unwrap();
+        let embedded_engines = new_temp_embedded_engine(&path);
+        let (region, test_data) = load_default_dataset(embedded_engines.clone());
 
-        let snap = RegionSnapshot::<EinsteinMerkleSnapshot>::from_raw(engines.kv.clone(), region);
+        let snap = RegionSnapshot::<EinsteinMerkleSnapshot>::from_raw(embedded_engines.kv.clone(), region);
         let mut statistics = CfStatistics::default();
         let it = snap.iter(IterOptions::default());
         let mut iter = Cursor::new(it, ScanMode::Mixed);
@@ -601,7 +601,7 @@ mod tests {
         // test last region
         let mut region = Region::default();
         region.mut_peers().push(Peer::default());
-        let snap = RegionSnapshot::<EinsteinMerkleSnapshot>::from_raw(engines.kv, region);
+        let snap = RegionSnapshot::<EinsteinMerkleSnapshot>::from_raw(embedded_engines.kv, region);
         let it = snap.iter(IterOptions::default());
         let mut iter = Cursor::new(it, ScanMode::Mixed);
         assert!(!iter

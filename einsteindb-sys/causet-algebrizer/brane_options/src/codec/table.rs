@@ -7,7 +7,7 @@ use std::{cmp, u8};
 
 use crate::prelude::*;
 use crate::FieldTypeTp;
-use ekvproto::interlock::KeyRange;
+use eekvproto::interlock::KeyRange;
 use einsteindbpb::ColumnInfo;
 
 use super::mysql::{Duration, Time};

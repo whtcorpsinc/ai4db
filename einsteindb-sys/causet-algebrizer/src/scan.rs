@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use ekvproto::interlock::KeyRange;
+use eekvproto::interlock::KeyRange;
 use einsteindbpb::ColumnInfo;
 
 use super::{Executor, Row};

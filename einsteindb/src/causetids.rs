@@ -62,7 +62,7 @@ pub const EINSTEINDB_SCHEMA_EMBEDDED: Causetid = 40;
 
 /// Return `false` if the given attribute will not change the metadata: recognized solitonids, schema,
 /// partitions in the partition map.
-pub fn might_update_metadata(attribute: Causetid) -> bool {
+pub fn might_ufidelate_metadata(attribute: Causetid) -> bool {
     if attribute >= EINSTEINDB_DOC {
         return false
     }

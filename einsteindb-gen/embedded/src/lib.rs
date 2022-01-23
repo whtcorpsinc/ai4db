@@ -145,7 +145,7 @@ pub trait HasSchema {
 impl Schema {
     pub fn new(solitonid_map: , causetid_map: causetidMap, attribute_map: AttributeMap) -> Schema {
         let mut s = Schema { solitonid_map, causetid_map, attribute_map, component_attributes: Vec::new() };
-        s.update_component_attributes();
+        s.ufidelate_component_attributes();
         s
     }
 
@@ -160,7 +160,7 @@ impl Schema {
         self.solitonid_map.get(x).map(|x| *x)
     }
 
-    pub fn update_component_attributes(&mut self) {
+    pub fn ufidelate_component_attributes(&mut self) {
         let mut components: Vec<Causetid>;
         components = self.attribute_map
                          .iter()

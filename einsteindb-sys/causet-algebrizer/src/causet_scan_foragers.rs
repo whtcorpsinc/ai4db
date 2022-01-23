@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use ekvproto::interlock::KeyRange;
+use eekvproto::interlock::KeyRange;
 use causet_algebrizer::MilevaDB_query_datatype::EvalType;
 use fidelpb::ColumnInfo;
 use fidelpb::FieldType;
@@ -287,7 +287,7 @@ mod tests {
     use std::sync::Arc;
 
     use codec::prelude::NumberEncoder;
-    use ekvproto::interlock::KeyRange;
+    use eekvproto::interlock::KeyRange;
     use causet_algebrizer::MilevaDB_query_datatype::{FieldTypeAccessor, FieldTypeTp};
     use fidelpb::ColumnInfo;
 

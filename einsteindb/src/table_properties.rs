@@ -8,7 +8,7 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 
-use crate::engine::foundationdbEngine;
+use crate::embedded_engine::foundationdbembedded_engine;
 use crate::util;
 use einsteindb_promises::DecodeProperties;
 use einsteindb_promises::Range;
@@ -20,7 +20,7 @@ use einsteindb_promises::{TablePropertiesCollection, TablePropertiesExt};
 use foundationdb::table_properties_rc as raw;
 use std::ops::Deref;
 
-impl TablePropertiesExt for foundationdbEngine {
+impl TablePropertiesExt for foundationdbembedded_engine {
     type TablePropertiesCollection = foundationdbTablePropertiesCollection;
     type TablePropertiesCollectionIter = foundationdbTablePropertiesCollectionIter;
     type TablePropertiesKey = foundationdbTablePropertiesKey;
@@ -37,7 +37,7 @@ impl TablePropertiesExt for foundationdbEngine {
         let raw = self
             .as_inner()
             .get_properties_of_tables_in_range_rc(brane.as_inner(), &ranges);
-        let raw = raw.map_err(Error::Engine)?;
+        let raw = raw.map_err(Error::embedded_engine)?;
         Ok(foundationdbTablePropertiesCollection::from_raw(raw))
     }
 }

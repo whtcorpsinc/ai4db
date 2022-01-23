@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use einsteindb_promises::{
-    Error, IterOptions, Iterable, KvEngine, Peekable, ReadOptions, Result, SyncMutable,
+    Error, IterOptions, Iterable, Kvembedded_engine, Peekable, ReadOptions, Result, SyncMutable,
 };
 use einstein_merkle::{DBIterator, Writable, DB};
 
@@ -15,22 +15,22 @@ use crate::einstein_merkle_metrics::{
     flush_einsteindb_ticker_metrics,
 };
 use crate::einstein_merkle_metrics_defs::{
-    ENGINE_HIST_TYPES, ENGINE_TICKER_TYPES, EINSTEIN_MERKLE_ENGINE_HIST_TYPES, EINSTEIN_ MERKLE_ENGINE_TICKER_TYPES,
+    embedded_engine_HIST_TYPES, embedded_engine_TICKER_TYPES, EINSTEIN_MERKLE_embedded_engine_HIST_TYPES, EINSTEIN_ MERKLE_embedded_engine_TICKER_TYPES,
 };
 use crate::util::get_cf_handle;
-use crate::{EinsteinMerkleEngineIterator, EinsteinMerkleSnapshot};
+use crate::{EinsteinMerkleembedded_engineIterator, EinsteinMerkleSnapshot};
 
 #[derive(Clone, Debug)]
 #[repr(transparent)]
-pub struct EinsteinMerkleEngine(Arc<DB>);
+pub struct EinsteinMerkleembedded_engine(Arc<DB>);
 
-impl EinsteinMerkleEngine {
+impl EinsteinMerkleembedded_engine {
     pub fn from_db(db: Arc<DB>) -> Self {
-        EinsteinMerkleEngine(db)
+        EinsteinMerkleembedded_engine(db)
     }
 
     pub fn from_ref(db: &Arc<DB>) -> &Self {
-        unsafe { &*(db as *const Arc<DB> as *const EinsteinMerkleEngine) }
+        unsafe { &*(db as *const Arc<DB> as *const EinsteinMerkleembedded_engine) }
     }
 
     pub fn as_inner(&self) -> &Arc<DB> {
@@ -54,7 +54,7 @@ impl EinsteinMerkleEngine {
     }
 }
 
-impl KvEngine for EinsteinMerkleEngine {
+impl Kvembedded_engine for EinsteinMerkleembedded_engine {
     type Snapshot = EinsteinMerkleSnapshot;
 
     fn snapshot(&self) -> EinsteinMerkleSnapshot {
@@ -62,25 +62,25 @@ impl KvEngine for EinsteinMerkleEngine {
     }
 
     fn sync(&self) -> Result<()> {
-        self.0.sync_wal().map_err(Error::Engine)
+        self.0.sync_wal().map_err(Error::embedded_engine)
     }
 
     fn flush_metrics(&self, instance: &str, shared_block_cache: bool) {
-        for t in ENGINE_TICKER_TYPES {
+        for t in embedded_engine_TICKER_TYPES {
             let v = self.0.get_and_reset_statistics_ticker_count(*t);
             flush_einsteindb_ticker_metrics(*t, v, instance);
         }
-        for t in ENGINE_HIST_TYPES {
+        for t in embedded_engine_HIST_TYPES {
             if let Some(v) = self.0.get_statistics_histogram(*t) {
                 flush_einsteindb_histogram_metrics(*t, v, instance);
             }
         }
         if self.0.is_titan() {
-            for t in EINSTEIN_ MERKLE_ENGINE_TICKER_TYPES {
+            for t in EINSTEIN_ MERKLE_embedded_engine_TICKER_TYPES {
                 let v = self.0.get_and_reset_statistics_ticker_count(*t);
                 flush_einsteindb_ticker_metrics(*t, v, instance);
             }
-            for t in EINSTEIN_ MERKLE_ENGINE_HIST_TYPES {
+            for t in EINSTEIN_ MERKLE_embedded_engine_HIST_TYPES {
                 if let Some(v) = self.0.get_statistics_histogram(*t) {
                     flush_einsteindb_histogram_metrics(*t, v, instance);
                 }
@@ -100,12 +100,12 @@ impl KvEngine for EinsteinMerkleEngine {
     }
 }
 
-impl Iterable for EinsteinMerkleEngine {
-    type Iterator = EinsteinMerkleEngineIterator;
+impl Iterable for EinsteinMerkleembedded_engine {
+    type Iterator = EinsteinMerkleembedded_engineIterator;
 
     fn iterator_opt(&self, opts: IterOptions) -> Result<Self::Iterator> {
         let opt: EinsteinMerkleReadOptions = opts.into();
-        Ok(EinsteinMerkleEngineIterator::from_raw(DBIterator::new(
+        Ok(EinsteinMerkleembedded_engineIterator::from_raw(DBIterator::new(
             self.0.clone(),
             opt.into_raw(),
         )))
@@ -114,7 +114,7 @@ impl Iterable for EinsteinMerkleEngine {
     fn iterator_cf_opt(&self, brane: &str, opts: IterOptions) -> Result<Self::Iterator> {
         let handle = get_cf_handle(&self.0, brane)?;
         let opt: EinsteinMerkleReadOptions = opts.into();
-        Ok(EinsteinMerkleEngineIterator::from_raw(DBIterator::new_cf(
+        Ok(EinsteinMerkleembedded_engineIterator::from_raw(DBIterator::new_cf(
             self.0.clone(),
             handle,
             opt.into_raw(),
@@ -122,7 +122,7 @@ impl Iterable for EinsteinMerkleEngine {
     }
 }
 
-impl Peekable for EinsteinMerkleEngine {
+impl Peekable for EinsteinMerkleembedded_engine {
     type DBVector = einstein_merkleVector;
 
     fn get_value_opt(&self, opts: &ReadOptions, key: &[u8]) -> Result<Option<einstein_merkleVector>> {
@@ -144,48 +144,48 @@ impl Peekable for EinsteinMerkleEngine {
     }
 }
 
-impl SyncMutable for EinsteinMerkleEngine {
+impl SyncMutable for EinsteinMerkleembedded_engine {
     fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
-        self.0.put(key, value).map_err(Error::Engine)
+        self.0.put(key, value).map_err(Error::embedded_engine)
     }
 
     fn put_cf(&self, brane: &str, key: &[u8], value: &[u8]) -> Result<()> {
         let handle = get_cf_handle(&self.0, brane)?;
-        self.0.put_cf(handle, key, value).map_err(Error::Engine)
+        self.0.put_cf(handle, key, value).map_err(Error::embedded_engine)
     }
 
     fn delete(&self, key: &[u8]) -> Result<()> {
-        self.0.delete(key).map_err(Error::Engine)
+        self.0.delete(key).map_err(Error::embedded_engine)
     }
 
     fn delete_cf(&self, brane: &str, key: &[u8]) -> Result<()> {
         let handle = get_cf_handle(&self.0, brane)?;
-        self.0.delete_cf(handle, key).map_err(Error::Engine)
+        self.0.delete_cf(handle, key).map_err(Error::embedded_engine)
     }
 
     fn delete_range_cf(&self, brane: &str, begin_key: &[u8], end_key: &[u8]) -> Result<()> {
         let handle = get_cf_handle(&self.0, brane)?;
         self.0
             .delete_range_cf(handle, begin_key, end_key)
-            .map_err(Error::Engine)
+            .map_err(Error::embedded_engine)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::raw_util;
-    use einsteindb_promises::{Iterable, KvEngine, Peekable, SyncMutable};
-    use ekvproto::metapb::Region;
+    use einsteindb_promises::{Iterable, Kvembedded_engine, Peekable, SyncMutable};
+    use eekvproto::metapb::Region;
     use std::sync::Arc;
     use tempfile::Builder;
 
-    use crate::{EinsteinMerkleEngine, EinsteinMerkleSnapshot};
+    use crate::{EinsteinMerkleembedded_engine, EinsteinMerkleSnapshot};
 
     #[test]
     fn test_base() {
         let path = Builder::new().prefix("var").temFIDelir().unwrap();
         let brane = "brane";
-        let einsteindb = EinsteinMerkleEngine::from_db(Arc::new(
+        let einsteindb = EinsteinMerkleembedded_engine::from_db(Arc::new(
             raw_util::new_einsteindb(path.path().to_str().unwrap(), None, &[brane], None).unwrap(),
         ));
 
@@ -222,7 +222,7 @@ mod tests {
     fn test_peekable() {
         let path = Builder::new().prefix("var").temFIDelir().unwrap();
         let brane = "brane";
-        let einsteindb = EinsteinMerkleEngine::from_db(Arc::new(
+        let einsteindb = EinsteinMerkleembedded_engine::from_db(Arc::new(
             raw_util::new_einsteindb(path.path().to_str().unwrap(), None, &[brane], None).unwrap(),
         ));
 
@@ -238,7 +238,7 @@ mod tests {
     fn test_scan() {
         let path = Builder::new().prefix("var").temFIDelir().unwrap();
         let brane = "brane";
-        let einsteindb = EinsteinMerkleEngine::from_db(Arc::new(
+        let einsteindb = EinsteinMerkleembedded_engine::from_db(Arc::new(
             raw_util::new_einsteindb(path.path().to_str().unwrap(), None, &[brane], None).unwrap(),
         ));
 

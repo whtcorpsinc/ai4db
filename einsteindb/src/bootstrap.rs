@@ -163,7 +163,7 @@ lazy_static! {
                         :einsteindb/cardinality :einsteindb.cardinality/many}}"#;
         edbn::parse::value(s)
             .map(|v| v.without_spans())
-            .map_err(|_| DbErrorKind::BadBootstrapDefinition("Unable to parse V1_SYMBOLIC_SCHEMA".into()))
+            .map_err(|_| DbErrorKind::BadBootstrafidelefinition("Unable to parse V1_SYMBOLIC_SCHEMA".into()))
             .unwrap()
     };
 }
@@ -265,14 +265,14 @@ fn symbolic_schema_to_triples(solitonid_map: &, symbolic_schema: &Value) -> Resu
             for (solitonid, mp) in m {
                 let solitonid = match solitonid {
                     &Value::Keyword(ref solitonid) => solitonid,
-                    _ => bail!(DbErrorKind::BadBootstrapDefinition(format!("Expected namespaced keyword for solitonid but got '{:?}'", solitonid))),
+                    _ => bail!(DbErrorKind::BadBootstrafidelefinition(format!("Expected namespaced keyword for solitonid but got '{:?}'", solitonid))),
                 };
                 match *mp {
                     Value::Map(ref mpp) => {
                         for (attr, value) in mpp {
                             let attr = match attr {
                                 &Value::Keyword(ref attr) => attr,
-                                _ => bail!(DbErrorKind::BadBootstrapDefinition(format!("Expected namespaced keyword for attr but got '{:?}'", attr))),
+                                _ => bail!(DbErrorKind::BadBootstrafidelefinition(format!("Expected namespaced keyword for attr but got '{:?}'", attr))),
                         };
                             let typed_value = match TypedValue::from_edbn_value(value) {
                                 Some(TypedValue::Keyword(ref k)) => {
@@ -281,17 +281,17 @@ fn symbolic_schema_to_triples(solitonid_map: &, symbolic_schema: &Value) -> Resu
                                         .ok_or(DbErrorKind::Unrecognizedsolitonid(k.to_string()))?
                                 },
                                 Some(v) => v,
-                                _ => bail!(DbErrorKind::BadBootstrapDefinition(format!("ExpectedEinsteinDB typed value for value but got '{:?}'", value)))
+                                _ => bail!(DbErrorKind::BadBootstrafidelefinition(format!("ExpectedEinsteinDB typed value for value but got '{:?}'", value)))
                             };
 
                             triples.push((solitonid.clone(), attr.clone(), typed_value));
                         }
                     },
-                    _ => bail!(DbErrorKind::BadBootstrapDefinition("Expected {:einsteindb/solitonid {:einsteindb/attr value ...} ...}".into()))
+                    _ => bail!(DbErrorKind::BadBootstrafidelefinition("Expected {:einsteindb/solitonid {:einsteindb/attr value ...} ...}".into()))
                 }
             }
         },
-        _ => bail!(DbErrorKind::BadBootstrapDefinition("Expected {...}".into()))
+        _ => bail!(DbErrorKind::BadBootstrafidelefinition("Expected {...}".into()))
     }
     Ok(triples)
 }
@@ -314,11 +314,11 @@ fn symbolic_schema_to_assertions(symbolic_schema: &Value) -> Result<Vec<Value>> 
                                                                value.clone()]));
                         }
                     },
-                    _ => bail!(DbErrorKind::BadBootstrapDefinition("Expected {:einsteindb/solitonid {:einsteindb/attr value ...} ...}".into()))
+                    _ => bail!(DbErrorKind::BadBootstrafidelefinition("Expected {:einsteindb/solitonid {:einsteindb/attr value ...} ...}".into()))
                 }
             }
         },
-        _ => bail!(DbErrorKind::BadBootstrapDefinition("Expected {...}".into()))
+        _ => bail!(DbErrorKind::BadBootstrafidelefinition("Expected {...}".into()))
     }
     Ok(assertions)
 }

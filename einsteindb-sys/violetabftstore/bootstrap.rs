@@ -4,11 +4,11 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use engine_foundationdb::foundationdbSnapshot;
+use embedded_engine_foundationdb::foundationdbSnapshot;
 use futures::future::Future;
-use ekvproto::ccpb::*;
-use ekvproto::ekvrpcpb::ExtraOp;
-use ekvproto::metapb::Region;
+use eekvproto::ccpb::*;
+use eekvproto::ekvrpcpb::ExtraOp;
+use eekvproto::metapb::Region;
 use fidelio::FIDelClient;
 use violetabftstore::interlock::CmdBatch;
 use violetabftstore::router::violetabftStoreRouter;
@@ -840,9 +840,9 @@ mod tests {
     use super::*;
     use einsteindb_promises::DATA_branes;
     #[braneg(feature = "prost-codec")]
-    use ekvproto::ccpb::event::Event as Event_oneof_event;
-    use ekvproto::errorpb::Error as ErrorHeader;
-    use ekvproto::ekvrpcpb::Context;
+    use eekvproto::ccpb::event::Event as Event_oneof_event;
+    use eekvproto::errorpb::Error as ErrorHeader;
+    use eekvproto::ekvrpcpb::Context;
     use violetabftstore::errors::Error as violetabftStoreError;
     use violetabftstore::store::msg::CasualMessage;
     use std::collections::BTreeMap;
@@ -851,9 +851,9 @@ mod tests {
     use tempfile::TemFIDelir;
     use test_violetabftstore::MocekvioletabftStoreRouter;
     use test_violetabftstore::TestFIDelClient;
-    use EinsteinDB::storage::ekv::Engine;
+    use EinsteinDB::storage::ekv::embedded_engine;
     use EinsteinDB::storage::mvcc::tests::*;
-    use EinsteinDB::storage::TestEngineBuilder;
+    use EinsteinDB::storage::Testembedded_engineBuilder;
     use EinsteinDB_util::collections::HashSet;
     use EinsteinDB_util::mpsc::batch;
     use EinsteinDB_util::worker::{dummy_scheduler, Builder as WorkerBuilder, Worker};
@@ -908,7 +908,7 @@ mod tests {
         let (mut worker, _pool, mut initializer, rx) = mock_initializer();
 
         let temp = TemFIDelir::new().unwrap();
-        let engine = TestEngineBuilder::new()
+        let embedded_engine = Testembedded_engineBuilder::new()
             .path(temp.path())
             .branes(DATA_branes)
             .build()
@@ -920,18 +920,18 @@ mod tests {
         for i in 0..10 {
             let k = &[b'k', i];
             let ts = TimeStamp::new(i as _);
-            must_acquire_pessimistic_lock(&engine, k, k, ts, ts);
+            must_acquire_pessimistic_lock(&embedded_engine, k, k, ts, ts);
         }
 
         for i in 10..100 {
             let (k, v) = (&[b'k', i], &[b'v', i]);
             let ts = TimeStamp::new(i as _);
-            must_prewrite_put(&engine, k, v, k, ts);
+            must_prewrite_put(&embedded_engine, k, v, k, ts);
             expected_locks.entry(ts).or_default().insert(k.to_vec());
         }
 
         let region = Region::default();
-        let snap = engine.snapshot(&Context::default()).unwrap();
+        let snap = embedded_engine.snapshot(&Context::default()).unwrap();
 
         let check_result = || loop {
             let task = rx.recv().unwrap();

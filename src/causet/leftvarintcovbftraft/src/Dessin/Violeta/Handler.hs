@@ -133,8 +133,8 @@ applyCommand Command{..} = do
 
 leaderDoCommit :: Bftvioletabft nt et rt mt ()
 leaderDoCommit = do
-  commitUpdate <- leaderUpdateCommitIndex
-  when commitUpdate applyLogEntries
+  commitUfidelate <- leaderUfidelateCommitIndex
+  when commitUfidelate applyLogEntries
 
 -- apply the un-applied log entries up through commitIndex
 -- and send results to the client if you are the leader
@@ -154,8 +154,8 @@ applyLogEntries = do
 -- called only as leader
 -- checks to see what the largest N where a majority of
 -- the lMatchIndex set is >= N
-leaderUpdateCommitIndex :: Bftvioletabft nt et rt mt Bool
-leaderUpdateCommitIndex = do
+leaderUfidelateCommitIndex :: Bftvioletabft nt et rt mt Bool
+leaderUfidelateCommitIndex = do
   ci <- use commitIndex
   lmi <- use lMatchIndex
   qsize <- view quorumSize
