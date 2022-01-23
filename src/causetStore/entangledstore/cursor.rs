@@ -514,17 +514,17 @@ mod tests {
     use einstein_merkle_embedded_engine::{EinsteinMerkleembedded_engine, EinsteinMerkleSnapshot};
     use einstein_merkle_embedded_engine_promises::{IterOptions, Kvembedded_engines, SyncMutable};
     use keys::data_key;
-    use eekvproto::metapb::{Peer, Region};
+    use eekvproto::metapb::{Peer, Brane};
     use tempfile::Builder;
     use txn_types::Key;
 
     use crate::causetStorage::{CfStatistics, Cursor, ScanMode};
-    use violetabftstore::store::{new_temp_embedded_engine, RegionSnapshot};
+    use violetabftstore::store::{new_temp_embedded_engine, BraneSnapshot};
 
     type DataSet = Vec<(Vec<u8>, Vec<u8>)>;
 
-    fn load_default_dataset(embedded_engines: Kvembedded_engines<EinsteinMerkleembedded_engine, EinsteinMerkleembedded_engine>) -> (Region, DataSet) {
-        let mut r = Region::default();
+    fn load_default_dataset(embedded_engines: Kvembedded_engines<EinsteinMerkleembedded_engine, EinsteinMerkleembedded_engine>) -> (Brane, DataSet) {
+        let mut r = Brane::default();
         r.mut_peers().push(Peer::default());
         r.set_id(10);
         r.set_start_key(b"a2".to_vec());
@@ -548,9 +548,9 @@ mod tests {
     fn test_reverse_iterate() {
         let path = Builder::new().prefix("test-entangledstore").temfidelir().unwrap();
         let embedded_engines = new_temp_embedded_engine(&path);
-        let (region, test_data) = load_default_dataset(embedded_engines.clone());
+        let (brane, test_data) = load_default_dataset(embedded_engines.clone());
 
-        let snap = RegionSnapshot::<EinsteinMerkleSnapshot>::from_raw(embedded_engines.kv.clone(), region);
+        let snap = BraneSnapshot::<EinsteinMerkleSnapshot>::from_raw(embedded_engines.kv.clone(), brane);
         let mut statistics = CfStatistics::default();
         let it = snap.iter(IterOptions::default());
         let mut iter = Cursor::new(it, ScanMode::Mixed);
@@ -598,10 +598,10 @@ mod tests {
         expect.reverse();
         assert_eq!(res, expect);
 
-        // test last region
-        let mut region = Region::default();
-        region.mut_peers().push(Peer::default());
-        let snap = RegionSnapshot::<EinsteinMerkleSnapshot>::from_raw(embedded_engines.kv, region);
+        // test last brane
+        let mut brane = Brane::default();
+        brane.mut_peers().push(Peer::default());
+        let snap = BraneSnapshot::<EinsteinMerkleSnapshot>::from_raw(embedded_engines.kv, brane);
         let it = snap.iter(IterOptions::default());
         let mut iter = Cursor::new(it, ScanMode::Mixed);
         assert!(!iter

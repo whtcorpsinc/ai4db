@@ -175,7 +175,7 @@ impl SyncMutable for EinsteinMerkleembedded_engine {
 mod tests {
     use crate::raw_util;
     use einsteindb_promises::{Iterable, Kvembedded_engine, Peekable, SyncMutable};
-    use eekvproto::metapb::Region;
+    use eekvproto::metapb::Brane;
     use std::sync::Arc;
     use tempfile::Builder;
 
@@ -189,7 +189,7 @@ mod tests {
             raw_util::new_einsteindb(path.path().to_str().unwrap(), None, &[brane], None).unwrap(),
         ));
 
-        let mut r = Region::default();
+        let mut r = Brane::default();
         r.set_id(10);
 
         let key = b"key";
@@ -198,14 +198,14 @@ mod tests {
 
         let snap = einsteindb.snapshot();
 
-        let mut r1: Region = einsteindb.get_msg(key).unwrap().unwrap();
+        let mut r1: Brane = einsteindb.get_msg(key).unwrap().unwrap();
         assert_eq!(r, r1);
-        let r1_cf: Region = einsteindb.get_msg_cf(brane, key).unwrap().unwrap();
+        let r1_cf: Brane = einsteindb.get_msg_cf(brane, key).unwrap().unwrap();
         assert_eq!(r, r1_cf);
 
-        let mut r2: Region = snap.get_msg(key).unwrap().unwrap();
+        let mut r2: Brane = snap.get_msg(key).unwrap().unwrap();
         assert_eq!(r, r2);
-        let r2_cf: Region = snap.get_msg_cf(brane, key).unwrap().unwrap();
+        let r2_cf: Brane = snap.get_msg_cf(brane, key).unwrap().unwrap();
         assert_eq!(r, r2_cf);
 
         r.set_id(11);
@@ -214,7 +214,7 @@ mod tests {
         r2 = snap.get_msg(key).unwrap().unwrap();
         assert_ne!(r1, r2);
 
-        let b: Option<Region> = einsteindb.get_msg(b"missing_key").unwrap();
+        let b: Option<Brane> = einsteindb.get_msg(b"missing_key").unwrap();
         assert!(b.is_none());
     }
 

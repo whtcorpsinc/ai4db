@@ -229,11 +229,7 @@ fn solitonid_attrs_to_triples(solitonid: &symbols::Keyword, attrs: &Value) -> Ve
     }
 }
 
-/// Convert {:solitonid {:key :value ...} ...} to
-/// vec![(symbols::Keyword(:solitonid), symbols::Keyword(:key), TypedValue(:value)), ...].
-///
-/// Such triples are closer to what the transactor will produce when processing attribute
-/// assertions.
+
 
 fn solitonid_attrs_to_triples_vec(solitonid: &symbols::Keyword, attrs: &Value) -> Vec<(symbols::Keyword, symbols::Keyword, TypedValue)> {
     match *attrs {

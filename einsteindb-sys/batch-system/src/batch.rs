@@ -260,14 +260,14 @@ impl<N: Fsm, C: Fsm, Handler: PollHandler<N, C>> Poller<N, C, Handler> {
         let mut batch = Batch::with_capacity(self.max_batch_size);
         let mut reschedule_fsms = Vec::with_capacity(self.max_batch_size);
 
-        // Fetch batch after every round is finished. It's helpful to protect regions
-        // from becoming hungry if some regions are hot points. Since we fetch new fsm every time
+        // Fetch batch after every round is finished. It's helpful to protect branes
+        // from becoming hungry if some branes are hot points. Since we fetch new fsm every time
         // calling `poll`, we do not need to configure a large value for `self.max_batch_size`.
         let mut run = true;
         while run && self.fetch_fsm(&mut batch) {
-            // If there is some region wait to be deal, we must deal with it even if it has overhead
-            // max size of batch. It's helpful to protect regions from becoming hungry
-            // if some regions are hot points.
+            // If there is some brane wait to be deal, we must deal with it even if it has overhead
+            // max size of batch. It's helpful to protect branes from becoming hungry
+            // if some branes are hot points.
             let max_batch_size = std::cmp::max(self.max_batch_size, batch.normals.len());
             self.handler.begin(max_batch_size);
 
@@ -288,8 +288,8 @@ impl<N: Fsm, C: Fsm, Handler: PollHandler<N, C>> Poller<N, C, Handler> {
                 } else {
                     if batch.timers[i].elapsed() >= self.reschedule_duration {
                         hot_fsm_count += 1;
-                        // We should only reschedule a half of the hot regions, otherwise,
-                        // it's possible all the hot regions are fetched in a batch the
+                        // We should only reschedule a half of the hot branes, otherwise,
+                        // it's possible all the hot branes are fetched in a batch the
                         // next time.
                         if hot_fsm_count % 2 == 0 {
                             reschedule_fsms.push((i, ReschedulePolicy::Schedule));

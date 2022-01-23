@@ -1,7 +1,7 @@
 // Copyright 2016 EinsteinDB Project Authors. Licensed under Apache-2.0.
 
 use einsteindb_promises::{BRANEName, Kvembedded_engine};
-use eekvproto::metapb::Region;
+use eekvproto::metapb::Brane;
 use eekvproto::FIDelpb::CheckPolicy;
 use eekvproto::violetabft_cmdpb::{violetabftCmdRequest, violetabftCmdResponse};
 use std::marker::PhantomData;
@@ -141,9 +141,9 @@ impl_box_observer_g!(
 );
 impl_box_observer!(BoxRoleObserver, RoleObserver, WrappedRoleObserver);
 impl_box_observer!(
-    BoxRegionChangeObserver,
-    RegionChangeObserver,
-    WrappedRegionChangeObserver
+    BoxBraneChangeObserver,
+    BraneChangeObserver,
+    WrappedBraneChangeObserver
 );
 impl_box_observer!(BoxCmdObserver, CmdObserver, WrappedCmdObserver);
 
@@ -158,7 +158,7 @@ where
     apply_snapshot_observers: Vec<Entry<BoxApplySnapshotObserver>>,
     split_check_observers: Vec<Entry<BoxSplitCheckObserver<E>>>,
     role_observers: Vec<Entry<BoxRoleObserver>>,
-    region_change_observers: Vec<Entry<BoxRegionChangeObserver>>,
+    brane_change_observers: Vec<Entry<BoxBraneChangeObserver>>,
     cmd_observers: Vec<Entry<BoxCmdObserver>>,
     // TODO: add endpoint
 }
@@ -171,7 +171,7 @@ impl<E> Default for Registry<E> {
             apply_snapshot_observers: Default::default(),
             split_check_observers: Default::default(),
             role_observers: Default::default(),
-            region_change_observers: Default::default(),
+            brane_change_observers: Default::default(),
             cmd_observers: Default::default(),
         }
     }
@@ -215,8 +215,8 @@ impl<E> Registry<E> {
         push!(priority, ro, self.role_observers);
     }
 
-    pub fn register_region_change_observer(&mut self, priority: u32, rlo: BoxRegionChangeObserver) {
-        push!(priority, rlo, self.region_change_observers);
+    pub fn register_brane_change_observer(&mut self, priority: u32, rlo: BoxBraneChangeObserver) {
+        push!(priority, rlo, self.brane_change_observers);
     }
 
     pub fn register_cmd_observer(&mut self, priority: u32, rlo: BoxCmdObserver) {
@@ -312,12 +312,12 @@ where
     }
 
     /// Call all propose hooks until bypass is set to true.
-    pub fn pre_propose(&self, region: &Region, req: &mut violetabftCmdRequest) -> Result<()> {
+    pub fn pre_propose(&self, brane: &Brane, req: &mut violetabftCmdRequest) -> Result<()> {
         if !req.has_admin_request() {
             let query = req.mut_requests();
             let mut vec_query = mem::take(query).into();
             let result = try_loop_ob!(
-                region,
+                brane,
                 &self.registry.query_observers,
                 pre_propose_query,
                 &mut vec_query,
@@ -327,7 +327,7 @@ where
         } else {
             let admin = req.mut_admin_request();
             try_loop_ob!(
-                region,
+                brane,
                 &self.registry.admin_observers,
                 pre_propose_admin,
                 admin
@@ -336,11 +336,11 @@ where
     }
 
     /// Call all pre apply hook until bypass is set to true.
-    pub fn pre_apply(&self, region: &Region, req: &violetabftCmdRequest) {
+    pub fn pre_apply(&self, brane: &Brane, req: &violetabftCmdRequest) {
         if !req.has_admin_request() {
             let query = req.get_requests();
             loop_ob!(
-                region,
+                brane,
                 &self.registry.query_observers,
                 pre_apply_query,
                 query,
@@ -348,7 +348,7 @@ where
         } else {
             let admin = req.get_admin_request();
             loop_ob!(
-                region,
+                brane,
                 &self.registry.admin_observers,
                 pre_apply_admin,
                 admin
@@ -356,12 +356,12 @@ where
         }
     }
 
-    pub fn post_apply(&self, region: &Region, resp: &mut violetabftCmdResponse) {
+    pub fn post_apply(&self, brane: &Brane, resp: &mut violetabftCmdResponse) {
         if !resp.has_admin_response() {
             let query = resp.mut_responses();
             let mut vec_query = mem::take(query).into();
             loop_ob!(
-                region,
+                brane,
                 &self.registry.query_observers,
                 post_apply_query,
                 &mut vec_query,
@@ -370,7 +370,7 @@ where
         } else {
             let admin = resp.mut_admin_response();
             loop_ob!(
-                region,
+                brane,
                 &self.registry.admin_observers,
                 post_apply_admin,
                 admin
@@ -380,12 +380,12 @@ where
 
     pub fn pre_apply_plain_ekvs_from_snapshot(
         &self,
-        region: &Region,
+        brane: &Brane,
         brane: BRANEName,
         ekv_pairs: &[(Vec<u8>, Vec<u8>)],
     ) {
         loop_ob!(
-            region,
+            brane,
             &self.registry.apply_snapshot_observers,
             pre_apply_plain_ekvs,
             brane,
@@ -393,9 +393,9 @@ where
         );
     }
 
-    pub fn pre_apply_sst_from_snapshot(&self, region: &Region, brane: BRANEName, path: &str) {
+    pub fn pre_apply_sst_from_snapshot(&self, brane: &Brane, brane: BRANEName, path: &str) {
         loop_ob!(
-            region,
+            brane,
             &self.registry.apply_snapshot_observers,
             pre_apply_sst,
             brane,
@@ -406,14 +406,14 @@ where
     pub fn new_split_checker_host<'a>(
         &self,
         braneg: &'a Config,
-        region: &Region,
+        brane: &Brane,
         embedded_engine: &E,
         auto_split: bool,
         policy: CheckPolicy,
     ) -> SplitCheckerHost<'a, E> {
         let mut host = SplitCheckerHost::new(auto_split, braneg);
         loop_ob!(
-            region,
+            brane,
             &self.registry.split_check_observers,
             add_checker,
             &mut host,
@@ -423,30 +423,30 @@ where
         host
     }
 
-    pub fn on_role_change(&self, region: &Region, role: StateRole) {
-        loop_ob!(region, &self.registry.role_observers, on_role_change, role);
+    pub fn on_role_change(&self, brane: &Brane, role: StateRole) {
+        loop_ob!(brane, &self.registry.role_observers, on_role_change, role);
     }
 
-    pub fn on_region_changed(&self, region: &Region, event: RegionChangeEvent, role: StateRole) {
+    pub fn on_brane_changed(&self, brane: &Brane, event: BraneChangeEvent, role: StateRole) {
         loop_ob!(
-            region,
-            &self.registry.region_change_observers,
-            on_region_changed,
+            brane,
+            &self.registry.brane_change_observers,
+            on_brane_changed,
             event,
             role
         );
     }
 
-    pub fn prepare_for_apply(&self, observe_id: ObserveID, region_id: u64) {
+    pub fn prepare_for_apply(&self, observe_id: ObserveID, brane_id: u64) {
         for cmd_ob in &self.registry.cmd_observers {
             cmd_ob
                 .observer
                 .inner()
-                .on_prepare_for_apply(observe_id, region_id);
+                .on_prepare_for_apply(observe_id, brane_id);
         }
     }
 
-    pub fn on_apply_cmd(&self, observe_id: ObserveID, region_id: u64, cmd: Cmd) {
+    pub fn on_apply_cmd(&self, observe_id: ObserveID, brane_id: u64, cmd: Cmd) {
         assert!(
             !self.registry.cmd_observers.is_empty(),
             "CmdObserver is not registered"
@@ -458,7 +458,7 @@ where
                 .unwrap()
                 .observer
                 .inner()
-                .on_apply_cmd(observe_id, region_id, cmd.clone())
+                .on_apply_cmd(observe_id, brane_id, cmd.clone())
         }
         self.registry
             .cmd_observers
@@ -466,7 +466,7 @@ where
             .unwrap()
             .observer
             .inner()
-            .on_apply_cmd(observe_id, region_id, cmd)
+            .on_apply_cmd(observe_id, brane_id, cmd)
     }
 
     pub fn on_flush_apply(&self, txn_extras: Vec<TxnExtra>) {
@@ -514,7 +514,7 @@ mod tests {
     use std::sync::Arc;
 
     use embedded_engine_foundationdb::foundationdbembedded_engine;
-    use eekvproto::metapb::Region;
+    use eekvproto::metapb::Brane;
     use eekvproto::violetabft_cmdpb::{
         AdminRequest, AdminResponse, violetabftCmdRequest, violetabftCmdResponse, Request, Response,
     };
@@ -585,11 +585,11 @@ mod tests {
         }
     }
 
-    impl RegionChangeObserver for Testinterlock {
-        fn on_region_changed(
+    impl BraneChangeObserver for Testinterlock {
+        fn on_brane_changed(
             &self,
             ctx: &mut ObserverContext<'_>,
-            _: RegionChangeEvent,
+            _: BraneChangeEvent,
             _: StateRole,
         ) {
             self.called.fetch_add(8, Ordering::SeqCst);
@@ -655,41 +655,41 @@ mod tests {
         host.registry
             .register_role_observer(1, BoxRoleObserver::new(ob.clone()));
         host.registry
-            .register_region_change_observer(1, BoxRegionChangeObserver::new(ob.clone()));
+            .register_brane_change_observer(1, BoxBraneChangeObserver::new(ob.clone()));
         host.registry
             .register_cmd_observer(1, BoxCmdObserver::new(ob.clone()));
-        let region = Region::default();
+        let brane = Brane::default();
         let mut admin_req = violetabftCmdRequest::default();
         admin_req.set_admin_request(AdminRequest::default());
-        host.pre_propose(&region, &mut admin_req).unwrap();
+        host.pre_propose(&brane, &mut admin_req).unwrap();
         assert_all!(&[&ob.called], &[1]);
-        host.pre_apply(&region, &admin_req);
+        host.pre_apply(&brane, &admin_req);
         assert_all!(&[&ob.called], &[3]);
         let mut admin_resp = violetabftCmdResponse::default();
         admin_resp.set_admin_response(AdminResponse::default());
-        host.post_apply(&region, &mut admin_resp);
+        host.post_apply(&brane, &mut admin_resp);
         assert_all!(&[&ob.called], &[6]);
 
         let mut query_req = violetabftCmdRequest::default();
         query_req.set_requests(vec![Request::default()].into());
-        host.pre_propose(&region, &mut query_req).unwrap();
+        host.pre_propose(&brane, &mut query_req).unwrap();
         assert_all!(&[&ob.called], &[10]);
-        host.pre_apply(&region, &query_req);
+        host.pre_apply(&brane, &query_req);
         assert_all!(&[&ob.called], &[15]);
         let mut query_resp = admin_resp;
         query_resp.clear_admin_response();
-        host.post_apply(&region, &mut query_resp);
+        host.post_apply(&brane, &mut query_resp);
         assert_all!(&[&ob.called], &[21]);
 
-        host.on_role_change(&region, StateRole::Leader);
+        host.on_role_change(&brane, StateRole::Leader);
         assert_all!(&[&ob.called], &[28]);
 
-        host.on_region_changed(&region, RegionChangeEvent::Create, StateRole::Follower);
+        host.on_brane_changed(&brane, BraneChangeEvent::Create, StateRole::Follower);
         assert_all!(&[&ob.called], &[36]);
 
-        host.pre_apply_plain_ekvs_from_snapshot(&region, "default", &[]);
+        host.pre_apply_plain_ekvs_from_snapshot(&brane, "default", &[]);
         assert_all!(&[&ob.called], &[45]);
-        host.pre_apply_sst_from_snapshot(&region, "default", "");
+        host.pre_apply_sst_from_snapshot(&brane, "default", "");
         assert_all!(&[&ob.called], &[55]);
         let observe_id = ObserveID::new();
         host.prepare_for_apply(observe_id, 0);
@@ -719,7 +719,7 @@ mod tests {
         host.registry
             .register_query_observer(2, BoxQueryObserver::new(ob2.clone()));
 
-        let region = Region::default();
+        let brane = Brane::default();
         let mut admin_req = violetabftCmdRequest::default();
         admin_req.set_admin_request(AdminRequest::default());
         let mut admin_resp = violetabftCmdResponse::default();
@@ -734,21 +734,21 @@ mod tests {
             set_all!(&[&ob1.called, &ob2.called], 0);
             set_all!(&[&ob1.bypass, &ob2.bypass], true);
 
-            host.pre_propose(&region, &mut req).unwrap();
+            host.pre_propose(&brane, &mut req).unwrap();
 
             // less means more.
             assert_all!(&[&ob1.called, &ob2.called], &[0, base_score + 1]);
 
-            host.pre_apply(&region, &req);
+            host.pre_apply(&brane, &req);
             assert_all!(&[&ob1.called, &ob2.called], &[0, base_score * 2 + 3]);
 
-            host.post_apply(&region, &mut resp);
+            host.post_apply(&brane, &mut resp);
             assert_all!(&[&ob1.called, &ob2.called], &[0, base_score * 3 + 6]);
 
             set_all!(&[&ob2.bypass], false);
             set_all!(&[&ob2.called], 0);
 
-            host.pre_propose(&region, &mut req).unwrap();
+            host.pre_propose(&brane, &mut req).unwrap();
 
             assert_all!(
                 &[&ob1.called, &ob2.called],
@@ -759,7 +759,7 @@ mod tests {
 
             // when return error, following interlocking_dir should not be run.
             set_all!(&[&ob2.return_err], true);
-            host.pre_propose(&region, &mut req).unwrap_err();
+            host.pre_propose(&brane, &mut req).unwrap_err();
             assert_all!(&[&ob1.called, &ob2.called], &[0, base_score + 1]);
         }
     }

@@ -53,8 +53,8 @@ where
         }
     }
 
-    fn approximate_split_keys(&mut self, region: &Region, embedded_engine: &E) -> Result<Vec<Vec<u8>>> {
-        let ks = box_try!(get_region_approximate_middle(embedded_engine, region)
+    fn approximate_split_keys(&mut self, brane: &Brane, embedded_engine: &E) -> Result<Vec<Vec<u8>>> {
+        let ks = box_try!(get_brane_approximate_middle(embedded_engine, brane)
             .map(|keys| keys.map_or(vec![], |key| vec![key])));
 
         Ok(ks)
@@ -85,14 +85,14 @@ where
             return;
         }
         host.add_checker(Box::new(Checker::new(
-            half_split_torus_size(host.cfg.region_max_size.0),
+            half_split_torus_size(host.cfg.brane_max_size.0),
             policy,
         )))
     }
 }
 
-fn half_split_torus_size(region_max_size: u64) -> u64 {
-    let mut half_split_torus_size = region_max_size / TORUS_NUMBER_LIMIT as u64;
+fn half_split_torus_size(brane_max_size: u64) -> u64 {
+    let mut half_split_torus_size = brane_max_size / TORUS_NUMBER_LIMIT as u64;
     let torus_size_limit = ReadableSize::mb(TORUS_SIZE_LIMIT_MB).0;
     if half_split_torus_size == 0 {
         half_split_torus_size = 1;
@@ -102,33 +102,33 @@ fn half_split_torus_size(region_max_size: u64) -> u64 {
     half_split_torus_size
 }
 
-/// Get region approximate middle key based on default and write brane size.
-pub fn get_region_approximate_middle(
+/// Get brane approximate middle key based on default and write brane size.
+pub fn get_brane_approximate_middle(
     db: &impl Kvembedded_engine,
-    region: &Region,
+    brane: &Brane,
 ) -> Result<Option<Vec<u8>>> {
-    let start_key = keys::enc_start_key(region);
-    let end_key = keys::enc_end_key(region);
+    let start_key = keys::enc_start_key(brane);
+    let end_key = keys::enc_end_key(brane);
     let range = Range::new(&start_key, &end_key);
     Ok(box_try!(
-        db.get_range_approximate_middle(range, region.get_id())
+        db.get_range_approximate_middle(range, brane.get_id())
     ))
 }
 
 
 #[cfg(test)]
-fn get_region_approximate_middle_cf(
+fn get_brane_approximate_middle_cf(
     db: &impl Kvembedded_engine,
     cfname: &str,
-    region: &Region,
+    brane: &Brane,
 ) -> Result<Option<Vec<u8>>> {
-    let start_key = keys::enc_start_key(region);
-    let end_key = keys::enc_end_key(region);
+    let start_key = keys::enc_start_key(brane);
+    let end_key = keys::enc_end_key(brane);
     let range = Range::new(&start_key, &end_key);
     Ok(box_try!(db.get_range_approximate_middle_cf(
         cfname,
         range,
-        region.get_id()
+        brane.get_id()
     )))
 }
 
@@ -144,7 +144,7 @@ mod tests {
     use foundationdb::Compat;
     use embedded_engine_traits::{ALL_branes, BRANE_DEFAULT, LARGE_branes};
     use eekvproto::metapb::Peer;
-    use eekvproto::metapb::Region;
+    use eekvproto::metapb::Brane;
     use eekvproto::fidelpb::CheckPolicy;
     use tempfile::Builder;
 
@@ -175,15 +175,15 @@ mod tests {
             .collect();
         let embedded_engine = Arc::new(new_embedded_engine_opt(path_str, db_opts, cfs_opts).unwrap());
 
-        let mut region = Region::default();
-        region.set_id(1);
-        region.mut_peers().push(Peer::default());
-        region.mut_region_epoch().set_version(2);
-        region.mut_region_epoch().set_conf_ver(5);
+        let mut brane = Brane::default();
+        brane.set_id(1);
+        brane.mut_peers().push(Peer::default());
+        brane.mut_brane_epoch().set_version(2);
+        brane.mut_brane_epoch().set_conf_ver(5);
 
         let (tx, rx) = mpsc::sync_channel(100);
         let mut cfg = Config::default();
-        cfg.region_max_size = ReadableSize(TORUS_NUMBER_LIMIT as u64);
+        cfg.brane_max_size = ReadableSize(TORUS_NUMBER_LIMIT as u64);
         let mut runnable = SplitCheckRunner::new(
             embedded_engine.c().clone(),
             tx.clone(),
@@ -201,22 +201,22 @@ mod tests {
             embedded_engine.flush_cf(cf_handle, true).unwrap();
         }
         runnable.run(SplitCheckTask::split_check(
-            region.clone(),
+            brane.clone(),
             false,
             CheckPolicy::Scan,
         ));
         let split_key = Key::from_raw(b"0005");
-        must_split_at(&rx, &region, vec![split_key.clone().into_encoded()]);
+        must_split_at(&rx, &brane, vec![split_key.clone().into_encoded()]);
         runnable.run(SplitCheckTask::split_check(
-            region.clone(),
+            brane.clone(),
             false,
             CheckPolicy::Approximate,
         ));
-        must_split_at(&rx, &region, vec![split_key.into_encoded()]);
+        must_split_at(&rx, &brane, vec![split_key.into_encoded()]);
     }
 
     #[test]
-    fn test_get_region_approximate_middle_cf() {
+    fn test_get_brane_approximate_middle_cf() {
         let tmp = Builder::new()
             .prefix("test_violetabftstore_util")
             .temfidelir()
@@ -246,9 +246,9 @@ mod tests {
             embedded_engine.flush_cf(cf_handle, true).unwrap();
         }
 
-        let mut region = Region::default();
-        region.mut_peers().push(Peer::default());
-        let middle_key = get_region_approximate_middle_cf(embedded_engine.c(), BRANE_DEFAULT, &region)
+        let mut brane = Brane::default();
+        brane.mut_peers().push(Peer::default());
+        let middle_key = get_brane_approximate_middle_cf(embedded_engine.c(), BRANE_DEFAULT, &brane)
             .unwrap()
             .unwrap();
 

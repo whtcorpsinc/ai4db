@@ -2,20 +2,20 @@ use encryption_export::data_key_manager_from_config;
 use embedded_engine_rocks::raw_util::{db_exist, new_embedded_engine_opt};
 use embedded_engine_rocks::Rocksembedded_engine;
 use embedded_engine_traits::{
-    embedded_engines, Error as embedded_engineError, Raftembedded_engine, ALL_CFS, CF_DEFAULT, CF_LOCK, CF_WRITE, DATA_CFS,
+    embedded_engines, Error as embedded_engineError, VioletaBFTembedded_engine, ALL_CFS, CF_DEFAULT, CF_LOCK, CF_WRITE, DATA_CFS,
 };
 use futures::{executor::block_on, future, stream, Stream, StreamExt, TryStreamExt};
 use grpcio::{ChannelBuilder, Environment};
 use ekvproto::debugpb::{Db as DBType, *};
 use ekvproto::kvrpcpb::MvccInfo;
-use ekvproto::metapb::{Peer, Region};
-use ekvproto::raft_cmdpb::RaftCmdRequest;
-use ekvproto::raft_serverpb::PeerState;
+use ekvproto::metapb::{Peer, Brane};
+use ekvproto::violetabft_cmdpb::VioletaBFTCmdRequest;
+use ekvproto::violetabft_serverpb::PeerState;
 use fidel_client::{Config as fidelConfig, fidelClient, RpcClient};
 use protobuf::Message;
-use raft::eraftpb::{ConfChange, ConfChangeV2, Entry, EntryType};
-use raft_log_embedded_engine::RaftLogembedded_engine;
-use raftstore::store::INIT_EPOCH_CONF_VER;
+use violetabft::evioletabftpb::{ConfChange, ConfChangeV2, Entry, EntryType};
+use violetabft_log_embedded_engine::VioletaBFTLogembedded_engine;
+use violetabftstore::store::INIT_EPOCH_CONF_VER;
 use security::SecurityManager;
 use serde_json::json;
 use std::borrow::ToOwned;
@@ -27,14 +27,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{str, u64};
 use einsteindb::config::{ConfigController, TiKvConfig};
-use einsteindb::server::debug::{BottommostLevelCompaction, Debugger, RegionInfo};
+use einsteindb::server::debug::{BottommostLevelCompaction, Debugger, BraneInfo};
 use einsteindb_util::escape;
 
 use crate::util::*;
 
 pub const METRICS_PROMETHEUS: &str = "prometheus";
 pub const METRICS_ROCKSDB_KV: &str = "rocksdb_kv";
-pub const METRICS_ROCKSDB_RAFT: &str = "rocksdb_raft";
+pub const METRICS_ROCKSDB_RAFT: &str = "rocksdb_violetabft";
 pub const METRICS_JEMALLOC: &str = "jemalloc";
 pub const LOCK_FILE_ERROR: &str = "IO error: While lock file";
 
@@ -81,32 +81,32 @@ pub fn new_debug_executor(
     kv_db.set_shared_block_cache(shared_block_cache);
 
     let cfg_controller = ConfigController::default();
-    if !cfg.raft_embedded_engine.enable {
-        let mut raft_db_opts = cfg.raftdb.build_opt();
-        raft_db_opts.set_env(env);
-        let raft_db_cf_opts = cfg.raftdb.build_cf_opts(&cache);
-        let raft_path = cfg.infer_raft_db_path(Some(data_dir)).unwrap();
-        if !db_exist(&raft_path) {
-            error!("raft db not exists: {}", raft_path);
+    if !cfg.violetabft_embedded_engine.enable {
+        let mut violetabft_db_opts = cfg.violetabftdb.build_opt();
+        violetabft_db_opts.set_env(env);
+        let violetabft_db_cf_opts = cfg.violetabftdb.build_cf_opts(&cache);
+        let violetabft_path = cfg.infer_violetabft_db_path(Some(data_dir)).unwrap();
+        if !db_exist(&violetabft_path) {
+            error!("violetabft db not exists: {}", violetabft_path);
             einsteindb_util::logger::exit_process_gracefully(-1);
         }
-        let raft_db = match new_embedded_engine_opt(&raft_path, raft_db_opts, raft_db_cf_opts) {
+        let violetabft_db = match new_embedded_engine_opt(&violetabft_path, violetabft_db_opts, violetabft_db_cf_opts) {
             Ok(db) => db,
             Err(e) => handle_embedded_engine_error(e),
         };
-        let mut raft_db = Rocksembedded_engine::from_db(Arc::new(raft_db));
-        raft_db.set_shared_block_cache(shared_block_cache);
-        let debugger = Debugger::new(embedded_engines::new(kv_db, raft_db), cfg_controller);
+        let mut violetabft_db = Rocksembedded_engine::from_db(Arc::new(violetabft_db));
+        violetabft_db.set_shared_block_cache(shared_block_cache);
+        let debugger = Debugger::new(embedded_engines::new(kv_db, violetabft_db), cfg_controller);
         Box::new(debugger) as Box<dyn DebugExecutor>
     } else {
-        let mut config = cfg.raft_embedded_engine.config();
-        config.dir = cfg.infer_raft_embedded_engine_path(Some(data_dir)).unwrap();
-        if !RaftLogembedded_engine::exists(&config.dir) {
-            error!("raft embedded_engine not exists: {}", config.dir);
+        let mut config = cfg.violetabft_embedded_engine.config();
+        config.dir = cfg.infer_violetabft_embedded_engine_path(Some(data_dir)).unwrap();
+        if !VioletaBFTLogembedded_engine::exists(&config.dir) {
+            error!("violetabft embedded_engine not exists: {}", config.dir);
             einsteindb_util::logger::exit_process_gracefully(-1);
         }
-        let raft_db = RaftLogembedded_engine::new(config, key_manager, None /*io_rate_limiter*/).unwrap();
-        let debugger = Debugger::new(embedded_engines::new(kv_db, raft_db), cfg_controller);
+        let violetabft_db = VioletaBFTLogembedded_engine::new(config, key_manager, None /*io_rate_limiter*/).unwrap();
+        let debugger = Debugger::new(embedded_engines::new(kv_db, violetabft_db), cfg_controller);
         Box::new(debugger) as Box<dyn DebugExecutor>
     }
 }
@@ -129,53 +129,53 @@ pub trait DebugExecutor {
         println!("value: {}", escape(&value));
     }
 
-    fn dump_region_size(&self, region: u64, cfs: Vec<&str>) -> usize {
-        let sizes = self.get_region_size(region, cfs);
+    fn dump_brane_size(&self, brane: u64, cfs: Vec<&str>) -> usize {
+        let sizes = self.get_brane_size(brane, cfs);
         let mut total_size = 0;
-        println!("region id: {}", region);
+        println!("brane id: {}", brane);
         for (cf, size) in sizes {
-            println!("cf {} region size: {}", cf, convert_gbmb(size as u64));
+            println!("cf {} brane size: {}", cf, convert_gbmb(size as u64));
             total_size += size;
         }
         total_size
     }
 
-    fn dump_all_region_size(&self, cfs: Vec<&str>) {
-        let regions = self.get_all_regions_in_store();
-        let regions_number = regions.len();
+    fn dump_all_brane_size(&self, cfs: Vec<&str>) {
+        let branes = self.get_all_branes_in_store();
+        let branes_number = branes.len();
         let mut total_size = 0;
-        for region in regions {
-            total_size += self.dump_region_size(region, cfs.clone());
+        for brane in branes {
+            total_size += self.dump_brane_size(brane, cfs.clone());
         }
-        println!("total region number: {}", regions_number);
-        println!("total region size: {}", convert_gbmb(total_size as u64));
+        println!("total brane number: {}", branes_number);
+        println!("total brane size: {}", convert_gbmb(total_size as u64));
     }
 
-    fn dump_region_info(&self, region_ids: Option<Vec<u64>>, skip_tombstone: bool) {
-        let region_ids = region_ids.unwrap_or_else(|| self.get_all_regions_in_store());
-        let mut region_objects = serde_json::map::Map::new();
-        for region_id in region_ids {
-            let r = self.get_region_info(region_id);
+    fn dump_brane_info(&self, brane_ids: Option<Vec<u64>>, skip_tombstone: bool) {
+        let brane_ids = brane_ids.unwrap_or_else(|| self.get_all_branes_in_store());
+        let mut brane_objects = serde_json::map::Map::new();
+        for brane_id in brane_ids {
+            let r = self.get_brane_info(brane_id);
             if skip_tombstone {
-                let region_state = r.region_local_state.as_ref();
-                if region_state.map_or(false, |s| s.get_state() == PeerState::Tombstone) {
+                let brane_state = r.brane_local_state.as_ref();
+                if brane_state.map_or(false, |s| s.get_state() == PeerState::Tombstone) {
                     return;
                 }
             }
-            let region_object = json!({
-                "region_id": region_id,
-                "region_local_state": r.region_local_state.map(|s| {
-                    let r = s.get_region();
-                    let region_epoch = r.get_region_epoch();
+            let brane_object = json!({
+                "brane_id": brane_id,
+                "brane_local_state": r.brane_local_state.map(|s| {
+                    let r = s.get_brane();
+                    let brane_epoch = r.get_brane_epoch();
                     let peers = r.get_peers();
                     json!({
-                        "region": json!({
+                        "brane": json!({
                             "id": r.get_id(),
                             "start_key": hex::encode_upper(r.get_start_key()),
                             "end_key": hex::encode_upper(r.get_end_key()),
-                            "region_epoch": json!({
-                                "conf_ver": region_epoch.get_conf_ver(),
-                                "version": region_epoch.get_version()
+                            "brane_epoch": json!({
+                                "conf_ver": brane_epoch.get_conf_ver(),
+                                "version": brane_epoch.get_version()
                             }),
                             "peers": peers.iter().map(|p| json!({
                                 "id": p.get_id(),
@@ -185,7 +185,7 @@ pub trait DebugExecutor {
                         }),
                     })
                 }),
-                "raft_local_state": r.raft_local_state.map(|s| {
+                "violetabft_local_state": r.violetabft_local_state.map(|s| {
                     let hard_state = s.get_hard_state();
                     json!({
                         "hard_state": json!({
@@ -196,7 +196,7 @@ pub trait DebugExecutor {
                         "last_index": s.get_last_index(),
                     })
                 }),
-                "raft_apply_state": r.raft_apply_state.map(|s| {
+                "violetabft_apply_state": r.violetabft_apply_state.map(|s| {
                     let truncated_state = s.get_truncated_state();
                     json!({
                         "applied_index": s.get_applied_index(),
@@ -209,22 +209,22 @@ pub trait DebugExecutor {
                     })
                 })
             });
-            region_objects.insert(region_id.to_string(), region_object);
+            brane_objects.insert(brane_id.to_string(), brane_object);
         }
 
         println!(
             "{}",
-            serde_json::to_string_pretty(&json!({ "region_infos": region_objects })).unwrap()
+            serde_json::to_string_pretty(&json!({ "brane_infos": brane_objects })).unwrap()
         );
     }
 
-    fn dump_raft_log(&self, region: u64, index: u64) {
-        let idx_key = keys::raft_log_key(region, index);
+    fn dump_violetabft_log(&self, brane: u64, index: u64) {
+        let idx_key = keys::violetabft_log_key(brane, index);
         println!("idx_key: {}", escape(&idx_key));
-        println!("region: {}", region);
+        println!("brane: {}", brane);
         println!("log index: {}", index);
 
-        let mut entry = self.get_raft_log(region, index);
+        let mut entry = self.get_violetabft_log(brane, index);
         let data = entry.take_data();
         println!("entry {:?}", entry);
         println!("msg len: {}", data.len());
@@ -235,7 +235,7 @@ pub trait DebugExecutor {
 
         match entry.get_entry_type() {
             EntryType::EntryNormal => {
-                let mut msg = RaftCmdRequest::default();
+                let mut msg = VioletaBFTCmdRequest::default();
                 msg.merge_from_bytes(&data).unwrap();
                 println!("Normal: {:#?}", msg);
             }
@@ -244,18 +244,18 @@ pub trait DebugExecutor {
                 msg.merge_from_bytes(&data).unwrap();
                 let ctx = msg.take_context();
                 println!("ConfChange: {:?}", msg);
-                let mut cmd = RaftCmdRequest::default();
+                let mut cmd = VioletaBFTCmdRequest::default();
                 cmd.merge_from_bytes(&ctx).unwrap();
-                println!("ConfChange.RaftCmdRequest: {:#?}", cmd);
+                println!("ConfChange.VioletaBFTCmdRequest: {:#?}", cmd);
             }
             EntryType::EntryConfChangeV2 => {
                 let mut msg = ConfChangeV2::new();
                 msg.merge_from_bytes(&data).unwrap();
                 let ctx = msg.take_context();
                 println!("ConfChangeV2: {:?}", msg);
-                let mut cmd = RaftCmdRequest::default();
+                let mut cmd = VioletaBFTCmdRequest::default();
                 cmd.merge_from_bytes(&ctx).unwrap();
-                println!("ConfChangeV2.RaftCmdRequest: {:#?}", cmd);
+                println!("ConfChangeV2.VioletaBFTCmdRequest: {:#?}", cmd);
             }
         }
     }
@@ -354,9 +354,9 @@ pub trait DebugExecutor {
         self.raw_scan_impl(from_key, to_key, limit, cf);
     }
 
-    fn diff_region(
+    fn diff_brane(
         &self,
-        region: u64,
+        brane: u64,
         to_host: Option<&str>,
         to_data_dir: Option<&str>,
         to_config: &TiKvConfig,
@@ -364,30 +364,30 @@ pub trait DebugExecutor {
     ) {
         let rhs_debug_executor = new_debug_executor(to_config, to_data_dir, false, to_host, mgr);
 
-        let r1 = self.get_region_info(region);
-        let r2 = rhs_debug_executor.get_region_info(region);
-        println!("region id: {}", region);
-        println!("db1 region state: {:?}", r1.region_local_state);
-        println!("db2 region state: {:?}", r2.region_local_state);
-        println!("db1 apply state: {:?}", r1.raft_apply_state);
-        println!("db2 apply state: {:?}", r2.raft_apply_state);
+        let r1 = self.get_brane_info(brane);
+        let r2 = rhs_debug_executor.get_brane_info(brane);
+        println!("brane id: {}", brane);
+        println!("db1 brane state: {:?}", r1.brane_local_state);
+        println!("db2 brane state: {:?}", r2.brane_local_state);
+        println!("db1 apply state: {:?}", r1.violetabft_apply_state);
+        println!("db2 apply state: {:?}", r2.violetabft_apply_state);
 
-        match (r1.region_local_state, r2.region_local_state) {
+        match (r1.brane_local_state, r2.brane_local_state) {
             (None, None) => {}
             (Some(_), None) | (None, Some(_)) => {
-                println!("db1 and db2 don't have same region local_state");
+                println!("db1 and db2 don't have same brane local_state");
             }
-            (Some(region_local_1), Some(region_local_2)) => {
-                let region1 = region_local_1.get_region();
-                let region2 = region_local_2.get_region();
-                if region1 != region2 {
-                    println!("db1 and db2 have different region:");
-                    println!("db1 region: {:?}", region1);
-                    println!("db2 region: {:?}", region2);
+            (Some(brane_local_1), Some(brane_local_2)) => {
+                let brane1 = brane_local_1.get_brane();
+                let brane2 = brane_local_2.get_brane();
+                if brane1 != brane2 {
+                    println!("db1 and db2 have different brane:");
+                    println!("db1 brane: {:?}", brane1);
+                    println!("db2 brane: {:?}", brane2);
                     return;
                 }
-                let start_key = keys::data_key(region1.get_start_key());
-                let end_key = keys::data_key(region1.get_end_key());
+                let start_key = keys::data_key(brane1.get_start_key());
+                let end_key = keys::data_key(brane1.get_end_key());
                 let mut mvcc_infos_1 = self.get_mvcc_infos(start_key.clone(), end_key.clone(), 0);
                 let mut mvcc_infos_2 = rhs_debug_executor.get_mvcc_infos(start_key, end_key, 0);
 
@@ -401,7 +401,7 @@ pub trait DebugExecutor {
                     };
                     match wait? {
                         Err(e) => {
-                            println!("db{} scan data in region {} fail: {}", i, region, e);
+                            println!("db{} scan data in brane {} fail: {}", i, brane, e);
                             einsteindb_util::logger::exit_process_gracefully(-1);
                         }
                         Ok(s) => Some(s),
@@ -451,7 +451,7 @@ pub trait DebugExecutor {
                     item = take_item(i).map(|t| (i, t));
                 }
                 if !has_diff {
-                    println!("db1 and db2 have same data in region: {}", region);
+                    println!("db1 and db2 have same data in brane: {}", brane);
                 }
                 println!(
                     "db1 has {} keys, db2 has {} keys",
@@ -484,22 +484,22 @@ pub trait DebugExecutor {
         );
     }
 
-    fn compact_region(
+    fn compact_brane(
         &self,
         address: Option<&str>,
         db: DBType,
         cf: &str,
-        region_id: u64,
+        brane_id: u64,
         threads: u32,
         bottommost: BottommostLevelCompaction,
     ) {
-        let region_local = self.get_region_info(region_id).region_local_state.unwrap();
-        let r = region_local.get_region();
+        let brane_local = self.get_brane_info(brane_id).brane_local_state.unwrap();
+        let r = brane_local.get_brane();
         let from = keys::data_key(r.get_start_key());
         let to = keys::data_end_key(r.get_end_key());
         self.do_compaction(db, cf, &from, &to, threads, bottommost);
         println!(
-            "store:{:?} compact_region db:{:?} cf:{} range:[{:?}, {:?}) success!",
+            "store:{:?} compact_brane db:{:?} cf:{} range:[{:?}, {:?}) success!",
             address.unwrap_or("local"),
             db,
             cf,
@@ -508,79 +508,79 @@ pub trait DebugExecutor {
         );
     }
 
-    fn print_bad_regions(&self);
+    fn print_bad_branes(&self);
 
-    fn set_region_tombstone_after_remove_peer(
+    fn set_brane_tombstone_after_remove_peer(
         &self,
         mgr: Arc<SecurityManager>,
         cfg: &fidelConfig,
-        region_ids: Vec<u64>,
+        brane_ids: Vec<u64>,
     ) {
         self.check_local_mode();
         let rpc_client =
             RpcClient::new(cfg, None, mgr).unwrap_or_else(|e| perror_and_exit("RpcClient::new", e));
 
-        let regions = region_ids
+        let branes = brane_ids
             .into_iter()
-            .map(|region_id| {
-                if let Some(region) = block_on(rpc_client.get_region_by_id(region_id))
-                    .unwrap_or_else(|e| perror_and_exit("Get region id from fidel", e))
+            .map(|brane_id| {
+                if let Some(brane) = block_on(rpc_client.get_brane_by_id(brane_id))
+                    .unwrap_or_else(|e| perror_and_exit("Get brane id from fidel", e))
                 {
-                    return region;
+                    return brane;
                 }
-                println!("no such region in fidel: {}", region_id);
+                println!("no such brane in fidel: {}", brane_id);
                 einsteindb_util::logger::exit_process_gracefully(-1);
             })
             .collect();
-        self.set_region_tombstone(regions);
+        self.set_brane_tombstone(branes);
     }
 
-    fn set_region_tombstone_force(&self, region_ids: Vec<u64>) {
+    fn set_brane_tombstone_force(&self, brane_ids: Vec<u64>) {
         self.check_local_mode();
-        self.set_region_tombstone_by_id(region_ids);
+        self.set_brane_tombstone_by_id(brane_ids);
     }
 
     /// Recover the cluster when given `store_ids` are failed.
     fn remove_fail_stores(
         &self,
         store_ids: Vec<u64>,
-        region_ids: Option<Vec<u64>>,
+        brane_ids: Option<Vec<u64>>,
         promote_learner: bool,
     );
 
-    fn drop_unapplied_raftlog(&self, region_ids: Option<Vec<u64>>);
+    fn drop_unapplied_violetabftlog(&self, brane_ids: Option<Vec<u64>>);
 
-    /// Recreate the region with metadata from fidel, but alloc new id for it.
-    fn recreate_region(&self, sec_mgr: Arc<SecurityManager>, fidel_cfg: &fidelConfig, region_id: u64);
+    /// Recreate the brane with metadata from fidel, but alloc new id for it.
+    fn recreate_brane(&self, sec_mgr: Arc<SecurityManager>, fidel_cfg: &fidelConfig, brane_id: u64);
 
-    fn check_region_consistency(&self, _: u64);
+    fn check_brane_consistency(&self, _: u64);
 
     fn check_local_mode(&self);
 
-    fn recover_regions_mvcc(
+    fn recover_branes_mvcc(
         &self,
         mgr: Arc<SecurityManager>,
         cfg: &fidelConfig,
-        region_ids: Vec<u64>,
+        brane_ids: Vec<u64>,
         read_only: bool,
     ) {
         self.check_local_mode();
         let rpc_client =
             RpcClient::new(cfg, None, mgr).unwrap_or_else(|e| perror_and_exit("RpcClient::new", e));
 
-        let regions = region_ids
+        let branes = brane_ids
             .into_iter()
-            .map(|region_id| {
-                if let Some(region) = block_on(rpc_client.get_region_by_id(region_id))
-                    .unwrap_or_else(|e| perror_and_exit("Get region id from fidel", e))
+            .map(|brane_id| {
+                if let Some(brane) = block_on(rpc_client.get_brane_by_id(brane_id))
+                    .unwrap_or_else(|e| perror_and_exit("Get brane id from fidel", e))
                 {
-                    return region;
+                    return brane;
                 }
-                println!("no such region in fidel: {}", region_id);
+                println!("no such brane in fidel: {}", brane_id);
                 einsteindb_util::logger::exit_process_gracefully(-1);
             })
             .collect();
-        self.recover_regions(regions, read_only);
+        self.recover_branes(branes, read_only);
     }
 
     fn recover_mvcc_all(&self, threads: usize, read_only: bool) {
@@ -588,15 +588,15 @@ pub trait DebugExecutor {
         self.recover_all(threads, read_only);
     }
 
-    fn get_all_regions_in_store(&self) -> Vec<u64>;
+    fn get_all_branes_in_store(&self) -> Vec<u64>;
 
     fn get_value_by_key(&self, cf: &str, key: Vec<u8>) -> Vec<u8>;
 
-    fn get_region_size(&self, region: u64, cfs: Vec<&str>) -> Vec<(String, usize)>;
+    fn get_brane_size(&self, brane: u64, cfs: Vec<&str>) -> Vec<(String, usize)>;
 
-    fn get_region_info(&self, region: u64) -> RegionInfo;
+    fn get_brane_info(&self, brane: u64) -> BraneInfo;
 
-    fn get_raft_log(&self, region: u64, index: u64) -> Entry;
+    fn get_violetabft_log(&self, brane: u64, index: u64) -> Entry;
 
     fn get_mvcc_infos(&self, from: Vec<u8>, to: Vec<u8>, limit: u64) -> MvccInfoStream;
 
@@ -612,11 +612,11 @@ pub trait DebugExecutor {
         bottommost: BottommostLevelCompaction,
     );
 
-    fn set_region_tombstone(&self, regions: Vec<Region>);
+    fn set_brane_tombstone(&self, branes: Vec<Brane>);
 
-    fn set_region_tombstone_by_id(&self, regions: Vec<u64>);
+    fn set_brane_tombstone_by_id(&self, branes: Vec<u64>);
 
-    fn recover_regions(&self, regions: Vec<Region>, read_only: bool);
+    fn recover_branes(&self, branes: Vec<Brane>, read_only: bool);
 
     fn recover_all(&self, threads: usize, read_only: bool);
 
@@ -624,7 +624,7 @@ pub trait DebugExecutor {
 
     fn dump_metrics(&self, tags: Vec<&str>);
 
-    fn dump_region_properties(&self, region_id: u64);
+    fn dump_brane_properties(&self, brane_id: u64);
 
     fn dump_range_properties(&self, start: Vec<u8>, end: Vec<u8>);
 
@@ -639,10 +639,10 @@ impl DebugExecutor for DebugClient {
         einsteindb_util::logger::exit_process_gracefully(-1);
     }
 
-    fn get_all_regions_in_store(&self) -> Vec<u64> {
-        DebugClient::get_all_regions_in_store(self, &GetAllRegionsInStoreRequest::default())
-            .unwrap_or_else(|e| perror_and_exit("DebugClient::get_all_regions_in_store", e))
-            .take_regions()
+    fn get_all_branes_in_store(&self) -> Vec<u64> {
+        DebugClient::get_all_branes_in_store(self, &GetAllBranesInStoreRequest::default())
+            .unwrap_or_else(|e| perror_and_exit("DebugClient::get_all_branes_in_store", e))
+            .take_branes()
     }
 
     fn get_value_by_key(&self, cf: &str, key: Vec<u8>) -> Vec<u8> {
@@ -655,45 +655,45 @@ impl DebugExecutor for DebugClient {
             .take_value()
     }
 
-    fn get_region_size(&self, region: u64, cfs: Vec<&str>) -> Vec<(String, usize)> {
+    fn get_brane_size(&self, brane: u64, cfs: Vec<&str>) -> Vec<(String, usize)> {
         let cfs = cfs.into_iter().map(ToOwned::to_owned).collect::<Vec<_>>();
-        let mut req = RegionSizeRequest::default();
+        let mut req = BraneSizeRequest::default();
         req.set_cfs(cfs.into());
-        req.set_region_id(region);
-        self.region_size(&req)
-            .unwrap_or_else(|e| perror_and_exit("DebugClient::region_size", e))
+        req.set_brane_id(brane);
+        self.brane_size(&req)
+            .unwrap_or_else(|e| perror_and_exit("DebugClient::brane_size", e))
             .take_entries()
             .into_iter()
             .map(|mut entry| (entry.take_cf(), entry.get_size() as usize))
             .collect()
     }
 
-    fn get_region_info(&self, region: u64) -> RegionInfo {
-        let mut req = RegionInfoRequest::default();
-        req.set_region_id(region);
+    fn get_brane_info(&self, brane: u64) -> BraneInfo {
+        let mut req = BraneInfoRequest::default();
+        req.set_brane_id(brane);
         let mut resp = self
-            .region_info(&req)
-            .unwrap_or_else(|e| perror_and_exit("DebugClient::region_info", e));
+            .brane_info(&req)
+            .unwrap_or_else(|e| perror_and_exit("DebugClient::brane_info", e));
 
-        let mut region_info = RegionInfo::default();
-        if resp.has_raft_local_state() {
-            region_info.raft_local_state = Some(resp.take_raft_local_state());
+        let mut brane_info = BraneInfo::default();
+        if resp.has_violetabft_local_state() {
+            brane_info.violetabft_local_state = Some(resp.take_violetabft_local_state());
         }
-        if resp.has_raft_apply_state() {
-            region_info.raft_apply_state = Some(resp.take_raft_apply_state());
+        if resp.has_violetabft_apply_state() {
+            brane_info.violetabft_apply_state = Some(resp.take_violetabft_apply_state());
         }
-        if resp.has_region_local_state() {
-            region_info.region_local_state = Some(resp.take_region_local_state());
+        if resp.has_brane_local_state() {
+            brane_info.brane_local_state = Some(resp.take_brane_local_state());
         }
-        region_info
+        brane_info
     }
 
-    fn get_raft_log(&self, region: u64, index: u64) -> Entry {
-        let mut req = RaftLogRequest::default();
-        req.set_region_id(region);
+    fn get_violetabft_log(&self, brane: u64, index: u64) -> Entry {
+        let mut req = VioletaBFTLogRequest::default();
+        req.set_brane_id(brane);
         req.set_log_index(index);
-        self.raft_log(&req)
-            .unwrap_or_else(|e| perror_and_exit("DebugClient::raft_log", e))
+        self.violetabft_log(&req)
+            .unwrap_or_else(|e| perror_and_exit("DebugClient::violetabft_log", e))
             .take_entry()
     }
 
@@ -747,26 +747,26 @@ impl DebugExecutor for DebugClient {
             println!("tag:{}", tag);
             let metrics = match tag {
                 METRICS_ROCKSDB_KV => resp.take_rocksdb_kv(),
-                METRICS_ROCKSDB_RAFT => resp.take_rocksdb_raft(),
+                METRICS_ROCKSDB_RAFT => resp.take_rocksdb_violetabft(),
                 METRICS_JEMALLOC => resp.take_jemalloc(),
                 METRICS_PROMETHEUS => resp.take_prometheus(),
                 _ => String::from(
-                    "unsupported tag, should be one of prometheus/jemalloc/rocksdb_raft/rocksdb_kv",
+                    "unsupported tag, should be one of prometheus/jemalloc/rocksdb_violetabft/rocksdb_kv",
                 ),
             };
             println!("{}", metrics);
         }
     }
 
-    fn set_region_tombstone(&self, _: Vec<Region>) {
+    fn set_brane_tombstone(&self, _: Vec<Brane>) {
         unimplemented!("only available for local mode");
     }
 
-    fn set_region_tombstone_by_id(&self, _: Vec<u64>) {
+    fn set_brane_tombstone_by_id(&self, _: Vec<u64>) {
         unimplemented!("only available for local mode");
     }
 
-    fn recover_regions(&self, _: Vec<Region>, _: bool) {
+    fn recover_branes(&self, _: Vec<Brane>, _: bool) {
         unimplemented!("only available for local mode");
     }
 
@@ -774,7 +774,7 @@ impl DebugExecutor for DebugClient {
         unimplemented!("only available for local mode");
     }
 
-    fn print_bad_regions(&self) {
+    fn print_bad_branes(&self) {
         unimplemented!("only available for local mode");
     }
 
@@ -782,19 +782,19 @@ impl DebugExecutor for DebugClient {
         unimplemented!("only available for local mode");
     }
 
-    fn drop_unapplied_raftlog(&self, _: Option<Vec<u64>>) {
+    fn drop_unapplied_violetabftlog(&self, _: Option<Vec<u64>>) {
         unimplemented!("only available for local mode");
     }
 
-    fn recreate_region(&self, _: Arc<SecurityManager>, _: &fidelConfig, _: u64) {
+    fn recreate_brane(&self, _: Arc<SecurityManager>, _: &fidelConfig, _: u64) {
         unimplemented!("only available for local mode");
     }
 
-    fn check_region_consistency(&self, region_id: u64) {
-        let mut req = RegionConsistencyCheckRequest::default();
-        req.set_region_id(region_id);
-        self.check_region_consistency(&req)
-            .unwrap_or_else(|e| perror_and_exit("DebugClient::check_region_consistency", e));
+    fn check_brane_consistency(&self, brane_id: u64) {
+        let mut req = BraneConsistencyCheckRequest::default();
+        req.set_brane_id(brane_id);
+        self.check_brane_consistency(&req)
+            .unwrap_or_else(|e| perror_and_exit("DebugClient::check_brane_consistency", e));
         println!("success!");
     }
 
@@ -807,12 +807,12 @@ impl DebugExecutor for DebugClient {
         println!("success");
     }
 
-    fn dump_region_properties(&self, region_id: u64) {
-        let mut req = GetRegionPropertiesRequest::default();
-        req.set_region_id(region_id);
+    fn dump_brane_properties(&self, brane_id: u64) {
+        let mut req = GetBranePropertiesRequest::default();
+        req.set_brane_id(brane_id);
         let resp = self
-            .get_region_properties(&req)
-            .unwrap_or_else(|e| perror_and_exit("DebugClient::get_region_properties", e));
+            .get_brane_properties(&req)
+            .unwrap_or_else(|e| perror_and_exit("DebugClient::get_brane_properties", e));
         for prop in resp.get_props() {
             println!("{}: {}", prop.get_name(), prop.get_value());
         }
@@ -840,12 +840,12 @@ impl DebugExecutor for DebugClient {
     }
 }
 
-impl<ER: Raftembedded_engine> DebugExecutor for Debugger<ER> {
+impl<ER: VioletaBFTembedded_engine> DebugExecutor for Debugger<ER> {
     fn check_local_mode(&self) {}
 
-    fn get_all_regions_in_store(&self) -> Vec<u64> {
-        self.get_all_regions_in_store()
-            .unwrap_or_else(|e| perror_and_exit("Debugger::get_all_regions_in_store", e))
+    fn get_all_branes_in_store(&self) -> Vec<u64> {
+        self.get_all_branes_in_store()
+            .unwrap_or_else(|e| perror_and_exit("Debugger::get_all_branes_in_store", e))
     }
 
     fn get_value_by_key(&self, cf: &str, key: Vec<u8>) -> Vec<u8> {
@@ -853,22 +853,22 @@ impl<ER: Raftembedded_engine> DebugExecutor for Debugger<ER> {
             .unwrap_or_else(|e| perror_and_exit("Debugger::get", e))
     }
 
-    fn get_region_size(&self, region: u64, cfs: Vec<&str>) -> Vec<(String, usize)> {
-        self.region_size(region, cfs)
-            .unwrap_or_else(|e| perror_and_exit("Debugger::region_size", e))
+    fn get_brane_size(&self, brane: u64, cfs: Vec<&str>) -> Vec<(String, usize)> {
+        self.brane_size(brane, cfs)
+            .unwrap_or_else(|e| perror_and_exit("Debugger::brane_size", e))
             .into_iter()
             .map(|(cf, size)| (cf.to_owned(), size as usize))
             .collect()
     }
 
-    fn get_region_info(&self, region: u64) -> RegionInfo {
-        self.region_info(region)
-            .unwrap_or_else(|e| perror_and_exit("Debugger::region_info", e))
+    fn get_brane_info(&self, brane: u64) -> BraneInfo {
+        self.brane_info(brane)
+            .unwrap_or_else(|e| perror_and_exit("Debugger::brane_info", e))
     }
 
-    fn get_raft_log(&self, region: u64, index: u64) -> Entry {
-        self.raft_log(region, index)
-            .unwrap_or_else(|e| perror_and_exit("Debugger::raft_log", e))
+    fn get_violetabft_log(&self, brane: u64, index: u64) -> Entry {
+        self.violetabft_log(brane, index)
+            .unwrap_or_else(|e| perror_and_exit("Debugger::violetabft_log", e))
     }
 
     fn get_mvcc_infos(&self, from: Vec<u8>, to: Vec<u8>, limit: u64) -> MvccInfoStream {
@@ -904,42 +904,42 @@ impl<ER: Raftembedded_engine> DebugExecutor for Debugger<ER> {
             .unwrap_or_else(|e| perror_and_exit("Debugger::compact", e));
     }
 
-    fn set_region_tombstone(&self, regions: Vec<Region>) {
+    fn set_brane_tombstone(&self, branes: Vec<Brane>) {
         let ret = self
-            .set_region_tombstone(regions)
-            .unwrap_or_else(|e| perror_and_exit("Debugger::set_region_tombstone", e));
+            .set_brane_tombstone(branes)
+            .unwrap_or_else(|e| perror_and_exit("Debugger::set_brane_tombstone", e));
         if ret.is_empty() {
             println!("success!");
             return;
         }
-        for (region_id, error) in ret {
-            println!("region: {}, error: {}", region_id, error);
+        for (brane_id, error) in ret {
+            println!("brane: {}, error: {}", brane_id, error);
         }
     }
 
-    fn set_region_tombstone_by_id(&self, region_ids: Vec<u64>) {
+    fn set_brane_tombstone_by_id(&self, brane_ids: Vec<u64>) {
         let ret = self
-            .set_region_tombstone_by_id(region_ids)
-            .unwrap_or_else(|e| perror_and_exit("Debugger::set_region_tombstone_by_id", e));
+            .set_brane_tombstone_by_id(brane_ids)
+            .unwrap_or_else(|e| perror_and_exit("Debugger::set_brane_tombstone_by_id", e));
         if ret.is_empty() {
             println!("success!");
             return;
         }
-        for (region_id, error) in ret {
-            println!("region: {}, error: {}", region_id, error);
+        for (brane_id, error) in ret {
+            println!("brane: {}, error: {}", brane_id, error);
         }
     }
 
-    fn recover_regions(&self, regions: Vec<Region>, read_only: bool) {
+    fn recover_branes(&self, branes: Vec<Brane>, read_only: bool) {
         let ret = self
-            .recover_regions(regions, read_only)
-            .unwrap_or_else(|e| perror_and_exit("Debugger::recover regions", e));
+            .recover_branes(branes, read_only)
+            .unwrap_or_else(|e| perror_and_exit("Debugger::recover branes", e));
         if ret.is_empty() {
             println!("success!");
             return;
         }
-        for (region_id, error) in ret {
-            println!("region: {}, error: {}", region_id, error);
+        for (brane_id, error) in ret {
+            println!("brane: {}, error: {}", brane_id, error);
         }
     }
 
@@ -948,52 +948,52 @@ impl<ER: Raftembedded_engine> DebugExecutor for Debugger<ER> {
             .unwrap_or_else(|e| perror_and_exit("Debugger::recover all", e));
     }
 
-    fn print_bad_regions(&self) {
-        let bad_regions = self
-            .bad_regions()
-            .unwrap_or_else(|e| perror_and_exit("Debugger::bad_regions", e));
-        if !bad_regions.is_empty() {
-            for (region_id, error) in bad_regions {
-                println!("{}: {}", region_id, error);
+    fn print_bad_branes(&self) {
+        let bad_branes = self
+            .bad_branes()
+            .unwrap_or_else(|e| perror_and_exit("Debugger::bad_branes", e));
+        if !bad_branes.is_empty() {
+            for (brane_id, error) in bad_branes {
+                println!("{}: {}", brane_id, error);
             }
             return;
         }
-        println!("all regions are healthy")
+        println!("all branes are healthy")
     }
 
     fn remove_fail_stores(
         &self,
         store_ids: Vec<u64>,
-        region_ids: Option<Vec<u64>>,
+        brane_ids: Option<Vec<u64>>,
         promote_learner: bool,
     ) {
         println!("removing stores {:?} from configurations...", store_ids);
-        self.remove_failed_stores(store_ids, region_ids, promote_learner)
+        self.remove_failed_stores(store_ids, brane_ids, promote_learner)
             .unwrap_or_else(|e| perror_and_exit("Debugger::remove_fail_stores", e));
         println!("success");
     }
 
-    fn drop_unapplied_raftlog(&self, region_ids: Option<Vec<u64>>) {
-        println!("removing unapplied raftlog on region {:?} ...", region_ids);
-        self.drop_unapplied_raftlog(region_ids)
+    fn drop_unapplied_violetabftlog(&self, brane_ids: Option<Vec<u64>>) {
+        println!("removing unapplied violetabftlog on brane {:?} ...", brane_ids);
+        self.drop_unapplied_violetabftlog(brane_ids)
             .unwrap_or_else(|e| perror_and_exit("Debugger::remove_fail_stores", e));
         println!("success");
     }
 
-    fn recreate_region(&self, mgr: Arc<SecurityManager>, fidel_cfg: &fidelConfig, region_id: u64) {
+    fn recreate_brane(&self, mgr: Arc<SecurityManager>, fidel_cfg: &fidelConfig, brane_id: u64) {
         let rpc_client = RpcClient::new(fidel_cfg, None, mgr)
             .unwrap_or_else(|e| perror_and_exit("RpcClient::new", e));
 
-        let mut region = match block_on(rpc_client.get_region_by_id(region_id)) {
-            Ok(Some(region)) => region,
+        let mut brane = match block_on(rpc_client.get_brane_by_id(brane_id)) {
+            Ok(Some(brane)) => brane,
             Ok(None) => {
-                println!("no such region {} on fidel", region_id);
+                println!("no such brane {} on fidel", brane_id);
                 einsteindb_util::logger::exit_process_gracefully(-1);
             }
-            Err(e) => perror_and_exit("RpcClient::get_region_by_id", e),
+            Err(e) => perror_and_exit("RpcClient::get_brane_by_id", e),
         };
 
-        let new_region_id = rpc_client
+        let new_brane_id = rpc_client
             .alloc_id()
             .unwrap_or_else(|e| perror_and_exit("RpcClient::alloc_id", e));
         let new_peer_id = rpc_client
@@ -1002,23 +1002,23 @@ impl<ER: Raftembedded_engine> DebugExecutor for Debugger<ER> {
 
         let store_id = self.get_store_ident().expect("get store id").store_id;
 
-        region.set_id(new_region_id);
-        let old_version = region.get_region_epoch().get_version();
-        region.mut_region_epoch().set_version(old_version + 1);
-        region.mut_region_epoch().set_conf_ver(INIT_EPOCH_CONF_VER);
+        brane.set_id(new_brane_id);
+        let old_version = brane.get_brane_epoch().get_version();
+        brane.mut_brane_epoch().set_version(old_version + 1);
+        brane.mut_brane_epoch().set_conf_ver(INIT_EPOCH_CONF_VER);
 
-        region.peers.clear();
+        brane.peers.clear();
         let mut peer = Peer::default();
         peer.set_id(new_peer_id);
         peer.set_store_id(store_id);
-        region.mut_peers().push(peer);
+        brane.mut_peers().push(peer);
 
         println!(
-            "initing empty region {} with peer_id {}...",
-            new_region_id, new_peer_id
+            "initing empty brane {} with peer_id {}...",
+            new_brane_id, new_peer_id
         );
-        self.recreate_region(region)
-            .unwrap_or_else(|e| perror_and_exit("Debugger::recreate_region", e));
+        self.recreate_brane(brane)
+            .unwrap_or_else(|e| perror_and_exit("Debugger::recreate_brane", e));
         println!("success");
     }
 
@@ -1026,7 +1026,7 @@ impl<ER: Raftembedded_engine> DebugExecutor for Debugger<ER> {
         unimplemented!("only available for online mode");
     }
 
-    fn check_region_consistency(&self, _: u64) {
+    fn check_brane_consistency(&self, _: u64) {
         println!("only support remote mode");
         einsteindb_util::logger::exit_process_gracefully(-1);
     }
@@ -1036,10 +1036,10 @@ impl<ER: Raftembedded_engine> DebugExecutor for Debugger<ER> {
         einsteindb_util::logger::exit_process_gracefully(-1);
     }
 
-    fn dump_region_properties(&self, region_id: u64) {
+    fn dump_brane_properties(&self, brane_id: u64) {
         let props = self
-            .get_region_properties(region_id)
-            .unwrap_or_else(|e| perror_and_exit("Debugger::get_region_properties", e));
+            .get_brane_properties(brane_id)
+            .unwrap_or_else(|e| perror_and_exit("Debugger::get_brane_properties", e));
         for (name, value) in props {
             println!("{}: {}", name, value);
         }

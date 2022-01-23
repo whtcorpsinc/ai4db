@@ -8,7 +8,7 @@ use embedded_engine_foundationdb::foundationdbSnapshot;
 use futures::future::Future;
 use eekvproto::ccpb::*;
 use eekvproto::ekvrpcpb::ExtraOp;
-use eekvproto::metapb::Region;
+use eekvproto::metapb::Brane;
 use fidelio::FIDelClient;
 use violetabftstore::interlock::CmdBatch;
 use violetabftstore::router::violetabftStoreRouter;
@@ -33,13 +33,13 @@ use crate::{CdcObserver, Error, Result};
 
 pub enum Deregister {
     Downstream {
-        region_id: u64,
+        brane_id: u64,
         downstream_id: DownstreamID,
         conn_id: ConnID,
         err: Option<Error>,
     },
-    Region {
-        region_id: u64,
+    Brane {
+        brane_id: u64,
         observe_id: ObserveID,
         err: Error,
     },
@@ -57,24 +57,24 @@ impl fmt::Debug for Deregister {
         let mut de = f.debug_struct("Deregister");
         match self {
             Deregister::Downstream {
-                ref region_id,
+                ref brane_id,
                 ref downstream_id,
                 ref conn_id,
                 ref err,
             } => de
                 .field("deregister", &"downstream")
-                .field("region_id", region_id)
+                .field("brane_id", brane_id)
                 .field("downstream_id", downstream_id)
                 .field("conn_id", conn_id)
                 .field("err", err)
                 .finish(),
-            Deregister::Region {
-                ref region_id,
+            Deregister::Brane {
+                ref brane_id,
                 ref observe_id,
                 ref err,
             } => de
-                .field("deregister", &"region")
-                .field("region_id", region_id)
+                .field("deregister", &"brane")
+                .field("brane_id", brane_id)
                 .field("observe_id", observe_id)
                 .field("err", err)
                 .finish(),
@@ -102,16 +102,16 @@ pub enum Task {
         multi: Vec<CmdBatch>,
     },
     MinTS {
-        region_id: u64,
+        brane_id: u64,
         min_ts: TimeStamp,
     },
     ResolverReady {
         observe_id: ObserveID,
-        region: Region,
+        brane: Brane,
         resolver: Resolver,
     },
     IncrementalScan {
-        region_id: u64,
+        brane_id: u64,
         downstream_id: DownstreamID,
         entries: Vec<Option<TxnEntry>>,
     },
@@ -161,29 +161,29 @@ impl fmt::Debug for Task {
                 .field("multibatch", &multi.len())
                 .finish(),
             Task::MinTS {
-                ref region_id,
+                ref brane_id,
                 ref min_ts,
             } => de
                 .field("type", &"mit_ts")
-                .field("region_id", region_id)
+                .field("brane_id", brane_id)
                 .field("min_ts", min_ts)
                 .finish(),
             Task::ResolverReady {
                 ref observe_id,
-                ref region,
+                ref brane,
                 ..
             } => de
                 .field("type", &"resolver_ready")
                 .field("observe_id", &observe_id)
-                .field("region_id", &region.get_id())
+                .field("brane_id", &brane.get_id())
                 .finish(),
             Task::IncrementalScan {
-                ref region_id,
+                ref brane_id,
                 ref downstream_id,
                 ref entries,
             } => de
                 .field("type", &"incremental_scan")
-                .field("region_id", &region_id)
+                .field("brane_id", &brane_id)
                 .field("downstream", &downstream_id)
                 .field("scan_entries", &entries.len())
                 .finish(),
@@ -194,7 +194,7 @@ impl fmt::Debug for Task {
                 .field("type", &"init_downstream")
                 .field("downstream", &downstream_id)
                 .finish(),
-            Task::Validate(region_id, _) => de.field("region_id", &region_id).finish(),
+            Task::Validate(brane_id, _) => de.field("brane_id", &brane_id).finish(),
         }
     }
 }
@@ -234,65 +234,65 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
     }
 
     fn on_deregister(&mut self, deregister: Deregister) {
-        info!("cc deregister region"; "deregister" => ?deregister);
+        info!("cc deregister brane"; "deregister" => ?deregister);
         match deregister {
             Deregister::Downstream {
-                region_id,
+                brane_id,
                 downstream_id,
                 conn_id,
                 err,
             } => {
                 // The peer wants to deregister
                 let mut is_last = false;
-                if let Some(delegate) = self.0.get_mut(&region_id) {
+                if let Some(delegate) = self.0.get_mut(&brane_id) {
                     is_last = delegate.unsubscribe(downstream_id, err);
                 }
                 if let Some(conn) = self.1.get_mut(&conn_id) {
-                    if let Some(id) = conn.downstream_id(region_id) {
+                    if let Some(id) = conn.downstream_id(brane_id) {
                         if downstream_id == id {
-                            conn.unsubscribe(region_id);
+                            conn.unsubscribe(brane_id);
                         }
                     }
                 }
                 if is_last {
-                    let delegate = self.0.remove(&region_id).unwrap();
-                    // Do not continue to observe the events of the region.
-                    let oid = self.4.unsubscribe_region(region_id, delegate.id);
+                    let delegate = self.0.remove(&brane_id).unwrap();
+                    // Do not continue to observe the events of the brane.
+                    let oid = self.4.unsubscribe_brane(brane_id, delegate.id);
                     assert!(
                         oid.is_some(),
-                        "unsubscribe region {} failed, ObserveID {:?}",
-                        region_id,
+                        "unsubscribe brane {} failed, ObserveID {:?}",
+                        brane_id,
                         delegate.id
                     );
                 }
             }
-            Deregister::Region {
-                region_id,
+            Deregister::Brane {
+                brane_id,
                 observe_id,
                 err,
             } => {
-                // Something went wrong, deregister all downstreams of the region.
+                // Something went wrong, deregister all downstreams of the brane.
 
                 // To avoid ABA problem, we must check the unique ObserveID.
                 let need_remove = self
                     .0
-                    .get(&region_id)
+                    .get(&brane_id)
                     .map_or(false, |d| d.id == observe_id);
                 if need_remove {
-                    if let Some(mut delegate) = self.0.remove(&region_id) {
+                    if let Some(mut delegate) = self.0.remove(&brane_id) {
                         delegate.stop(err);
                     }
                     self.1
                         .iter_mut()
-                        .for_each(|(_, conn)| conn.unsubscribe(region_id));
+                        .for_each(|(_, conn)| conn.unsubscribe(brane_id));
                 }
-                // Do not continue to observe the events of the region.
-                let oid = self.4.unsubscribe_region(region_id, observe_id);
+                // Do not continue to observe the events of the brane.
+                let oid = self.4.unsubscribe_brane(brane_id, observe_id);
                 assert_eq!(
                     need_remove,
                     oid.is_some(),
-                    "unsubscribe region {} failed, ObserveID {:?}",
-                    region_id,
+                    "unsubscribe brane {} failed, ObserveID {:?}",
+                    brane_id,
                     observe_id
                 );
             }
@@ -301,17 +301,17 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
                 if let Some(conn) = self.1.remove(&conn_id) {
                     conn.take_downstreams()
                         .into_iter()
-                        .for_each(|(region_id, downstream_id)| {
-                            if let Some(delegate) = self.0.get_mut(&region_id) {
+                        .for_each(|(brane_id, downstream_id)| {
+                            if let Some(delegate) = self.0.get_mut(&brane_id) {
                                 if delegate.unsubscribe(downstream_id, None) {
-                                    let delegate = self.0.remove(&region_id).unwrap();
-                                    // Do not continue to observe the events of the region.
+                                    let delegate = self.0.remove(&brane_id).unwrap();
+                                    // Do not continue to observe the events of the brane.
                                     let oid =
-                                        self.4.unsubscribe_region(region_id, delegate.id);
+                                        self.4.unsubscribe_brane(brane_id, delegate.id);
                                     assert!(
                                         oid.is_some(),
-                                        "unsubscribe region {} failed, ObserveID {:?}",
-                                        region_id,
+                                        "unsubscribe brane {} failed, ObserveID {:?}",
+                                        brane_id,
                                         delegate.id
                                     );
                                 }
@@ -328,34 +328,34 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
         mut downstream: Downstream,
         conn_id: ConnID,
     ) {
-        let region_id = request.region_id;
+        let brane_id = request.brane_id;
         let conn = match self.1.get_mut(&conn_id) {
             Some(conn) => conn,
             None => {
                 error!("register for a nonexistent connection";
-                    "region_id" => region_id, "conn_id" => ?conn_id);
+                    "brane_id" => brane_id, "conn_id" => ?conn_id);
                 return;
             }
         };
         downstream.set_sink(conn.get_sink());
-        if !conn.subscribe(request.get_region_id(), downstream.get_id()) {
-            downstream.sink_duplicate_error(request.get_region_id());
+        if !conn.subscribe(request.get_brane_id(), downstream.get_id()) {
+            downstream.sink_duplicate_error(request.get_brane_id());
             error!("duplicate register";
-                "region_id" => region_id,
+                "brane_id" => brane_id,
                 "conn_id" => ?conn_id,
                 "req_id" => request.get_request_id(),
                 "downstream_id" => ?downstream.get_id());
             return;
         }
 
-        info!("cc register region";
-            "region_id" => region_id,
+        info!("cc register brane";
+            "brane_id" => brane_id,
             "conn_id" => ?conn.get_id(),
             "req_id" => request.get_request_id(),
             "downstream_id" => ?downstream.get_id());
         let mut is_new_delegate = false;
-        let delegate = self.0.entry(region_id).or_insert_with(|| {
-            let d = Delegate::new(region_id);
+        let delegate = self.0.entry(brane_id).or_insert_with(|| {
+            let d = Delegate::new(brane_id);
             is_new_delegate = true;
             d
         });
@@ -368,7 +368,7 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
 
         let init = Initializer {
             sched,
-            region_id,
+            brane_id,
             conn_id,
             downstream_id,
             batch_size,
@@ -378,41 +378,41 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
             build_resolver: is_new_delegate,
         };
         if !delegate.subscribe(downstream) {
-            conn.unsubscribe(request.get_region_id());
+            conn.unsubscribe(request.get_brane_id());
             if is_new_delegate {
-                self.0.remove(&request.get_region_id());
+                self.0.remove(&request.get_brane_id());
             }
             return;
         }
         let change_cmd = if is_new_delegate {
-            // The region has never been registered.
-            // Subscribe the change events of the region.
-            let old_id = self.4.subscribe_region(region_id, delegate.id);
+            // The brane has never been registered.
+            // Subscribe the change events of the brane.
+            let old_id = self.4.subscribe_brane(brane_id, delegate.id);
             assert!(
                 old_id.is_none(),
-                "region {} must not be observed twice, old ObserveID {:?}, new ObserveID {:?}",
-                region_id,
+                "brane {} must not be observed twice, old ObserveID {:?}, new ObserveID {:?}",
+                brane_id,
                 old_id,
                 delegate.id
             );
 
             ChangeCmd::RegisterObserver {
                 observe_id: delegate.id,
-                region_id,
+                brane_id,
                 enabled: delegate.enabled(),
             }
         } else {
             ChangeCmd::Snapshot {
                 observe_id: delegate.id,
-                region_id,
+                brane_id,
             }
         };
         let (cb, fut) = EinsteinDB_util::future::paired_future_callback();
         let scheduler = self.2.clone();
         let deregister_downstream = move |err| {
-            warn!("cc send capture change cmd failed"; "region_id" => region_id, "error" => ?err);
+            warn!("cc send capture change cmd failed"; "brane_id" => brane_id, "error" => ?err);
             let deregister = Deregister::Downstream {
-                region_id,
+                brane_id,
                 downstream_id,
                 conn_id,
                 err: Some(err),
@@ -423,10 +423,10 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
         };
         let scheduler = self.2.clone();
         if let Err(e) = self.3.significant_send(
-            region_id,
+            brane_id,
             SignificantMsg::CaptureChange {
                 cmd: change_cmd,
-                region_epoch: request.take_region_epoch(),
+                brane_epoch: request.take_brane_epoch(),
                 callback: Callback::Read(Box::new(move |resp| {
                     if let Err(e) = scheduler.schedule(Task::InitDownstream {
                         downstream_id,
@@ -454,18 +454,18 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
 
     pub fn on_multi_batch(&mut self, multi: Vec<CmdBatch>) {
         for batch in multi {
-            let region_id = batch.region_id;
+            let brane_id = batch.brane_id;
             let mut deregister = None;
-            if let Some(delegate) = self.0.get_mut(&region_id) {
+            if let Some(delegate) = self.0.get_mut(&brane_id) {
                 if delegate.has_failed() {
                     // Skip the batch if the delegate has failed.
                     continue;
                 }
                 if let Err(e) = delegate.on_batch(batch) {
                     assert!(delegate.has_failed());
-                    // Delegate has error, deregister the corresponding region.
-                    deregister = Some(Deregister::Region {
-                        region_id,
+                    // Delegate has error, deregister the corresponding brane.
+                    deregister = Some(Deregister::Brane {
+                        brane_id,
                         observe_id: delegate.id,
                         err: e,
                     });
@@ -479,46 +479,46 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
 
     pub fn on_incremental_scan(
         &mut self,
-        region_id: u64,
+        brane_id: u64,
         downstream_id: DownstreamID,
         entries: Vec<Option<TxnEntry>>,
     ) {
-        if let Some(delegate) = self.0.get_mut(&region_id) {
+        if let Some(delegate) = self.0.get_mut(&brane_id) {
             delegate.on_scan(downstream_id, entries);
         } else {
-            warn!("region not found on incremental scan"; "region_id" => region_id);
+            warn!("brane not found on incremental scan"; "brane_id" => brane_id);
         }
     }
 
-    fn on_region_ready(&mut self, observe_id: ObserveID, resolver: Resolver, region: Region) {
-        let region_id = region.get_id();
-        if let Some(delegate) = self.0.get_mut(&region_id) {
+    fn on_brane_ready(&mut self, observe_id: ObserveID, resolver: Resolver, brane: Brane) {
+        let brane_id = brane.get_id();
+        if let Some(delegate) = self.0.get_mut(&brane_id) {
             if delegate.id == observe_id {
-                for downstream in delegate.on_region_ready(resolver, region) {
+                for downstream in delegate.on_brane_ready(resolver, brane) {
                     let conn_id = downstream.get_conn_id();
                     if !delegate.subscribe(downstream) {
                         let conn = self.1.get_mut(&conn_id).unwrap();
-                        conn.unsubscribe(region_id);
+                        conn.unsubscribe(brane_id);
                     }
                 }
             } else {
-                debug!("stale region ready";
-                    "region_id" => region.get_id(),
+                debug!("stale brane ready";
+                    "brane_id" => brane.get_id(),
                     "observe_id" => ?observe_id,
                     "current_id" => ?delegate.id);
             }
         } else {
-            debug!("region not found on region ready (finish building resolver)";
-                "region_id" => region.get_id());
+            debug!("brane not found on brane ready (finish building resolver)";
+                "brane_id" => brane.get_id());
         }
     }
 
-    fn on_min_ts(&mut self, region_id: u64, min_ts: TimeStamp) {
-        if let Some(delegate) = self.0.get_mut(&region_id) {
+    fn on_min_ts(&mut self, brane_id: u64, min_ts: TimeStamp) {
+        if let Some(delegate) = self.0.get_mut(&brane_id) {
             if let Some(resolved_ts) = delegate.on_min_ts(min_ts) {
                 if resolved_ts < self.11 {
                     self.11 = resolved_ts;
-                    self.12 = region_id;
+                    self.12 = brane_id;
                 }
             }
         }
@@ -529,10 +529,10 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
         let tso = self.5.get_tso();
         let scheduler = self.2.clone();
         let violetabft_router = self.3.clone();
-        let regions: Vec<(u64, ObserveID)> = self
+        let branes: Vec<(u64, ObserveID)> = self
             .0
             .iter()
-            .map(|(region_id, delegate)| (*region_id, delegate.id))
+            .map(|(brane_id, delegate)| (*brane_id, delegate.id))
             .collect();
         let fut = tso.join(timeout.map_err(|_| unreachable!())).then(
             move |tso: fidelio::Result<(TimeStamp, ())>| {
@@ -540,13 +540,13 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
                 let (min_ts, _) = tso.unwrap_or((TimeStamp::default(), ()));
                 // TODO: send a message to violetabftstore would consume too much cpu time,
                 // try to handle it outside violetabftstore.
-                for (region_id, observe_id) in regions {
+                for (brane_id, observe_id) in branes {
                     let scheduler_clone = scheduler.clone();
                     if let Err(e) = violetabft_router.significant_send(
-                        region_id,
+                        brane_id,
                         SignificantMsg::LeaderCallback(Callback::Read(Box::new(move |resp| {
                             if !resp.response.get_header().has_error() {
-                                match scheduler_clone.schedule(Task::MinTS { region_id, min_ts }) {
+                                match scheduler_clone.schedule(Task::MinTS { brane_id, min_ts }) {
                                     Ok(_) | Err(ScheduleError::Stopped(_)) => (),
                                     Err(err) => panic!(
                                         "failed to schedule min_ts event, min_ts: {}, error: {:?}",
@@ -561,9 +561,9 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
                             "err" => ?e,
                             "min_ts" => min_ts,
                         );
-                        let deregister = Deregister::Region {
+                        let deregister = Deregister::Brane {
                             observe_id,
-                            region_id,
+                            brane_id,
                             err: Error::Request(e.into()),
                         };
                         if let Err(e) = scheduler.schedule(Task::Deregister(deregister)) {
@@ -598,7 +598,7 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Endpoint<T> {
 struct Initializer {
     sched: Scheduler<Task>,
 
-    region_id: u64,
+    brane_id: u64,
     observe_id: ObserveID,
     downstream_id: DownstreamID,
     downstream_state: DownstreamState,
@@ -611,10 +611,10 @@ struct Initializer {
 
 impl Initializer {
     fn on_change_cmd(&self, mut resp: ReadResponse<foundationdbSnapshot>) {
-        if let Some(region_snapshot) = resp.snapshot {
-            assert_eq!(self.region_id, region_snapshot.get_region().get_id());
-            let region = region_snapshot.get_region().clone();
-            self.async_incremental_scan(region_snapshot, region);
+        if let Some(brane_snapshot) = resp.snapshot {
+            assert_eq!(self.brane_id, brane_snapshot.get_brane().get_id());
+            let brane = brane_snapshot.get_brane().clone();
+            self.async_incremental_scan(brane_snapshot, brane);
         } else {
             assert!(
                 resp.response.get_header().has_error(),
@@ -622,8 +622,8 @@ impl Initializer {
                 resp.response
             );
             let err = resp.response.take_header().take_error();
-            let deregister = Deregister::Region {
-                region_id: self.region_id,
+            let deregister = Deregister::Brane {
+                brane_id: self.brane_id,
                 observe_id: self.observe_id,
                 err: Error::Request(err),
             };
@@ -633,17 +633,17 @@ impl Initializer {
         }
     }
 
-    fn async_incremental_scan<S: Snapshot + 'static>(&self, snap: S, region: Region) {
+    fn async_incremental_scan<S: Snapshot + 'static>(&self, snap: S, brane: Brane) {
         let downstream_id = self.downstream_id;
         let conn_id = self.conn_id;
-        let region_id = region.get_id();
+        let brane_id = brane.get_id();
         info!("async incremental scan";
-            "region_id" => region_id,
+            "brane_id" => brane_id,
             "downstream_id" => ?downstream_id,
             "observe_id" => ?self.observe_id);
 
         let mut resolver = if self.build_resolver {
-            Some(Resolver::new(region_id))
+            Some(Resolver::new(brane_id))
         } else {
             None
         };
@@ -661,7 +661,7 @@ impl Initializer {
         while !done {
             if !self.downstream_state.is_normal() {
                 info!("async incremental scan canceled";
-                    "region_id" => region_id,
+                    "brane_id" => brane_id,
                     "downstream_id" => ?downstream_id,
                     "observe_id" => ?self.observe_id);
                 return;
@@ -669,16 +669,16 @@ impl Initializer {
             let entries = match Self::scan_batch(&mut scanner, self.batch_size, resolver.as_mut()) {
                 Ok(res) => res,
                 Err(e) => {
-                    error!("cc scan entries failed"; "error" => ?e, "region_id" => region_id);
+                    error!("cc scan entries failed"; "error" => ?e, "brane_id" => brane_id);
                     // TODO: record in metrics.
                     let deregister = Deregister::Downstream {
-                        region_id,
+                        brane_id,
                         downstream_id,
                         conn_id,
                         err: Some(e),
                     };
                     if let Err(e) = self.sched.schedule(Task::Deregister(deregister)) {
-                        error!("schedule cc task failed"; "error" => ?e, "region_id" => region_id);
+                        error!("schedule cc task failed"; "error" => ?e, "brane_id" => brane_id);
                     }
                     return;
                 }
@@ -687,21 +687,21 @@ impl Initializer {
             if let Some(None) = entries.last() {
                 done = true;
             }
-            debug!("cc scan entries"; "len" => entries.len(), "region_id" => region_id);
+            debug!("cc scan entries"; "len" => entries.len(), "brane_id" => brane_id);
             fail_point!("before_schedule_incremental_scan");
             let scanned = Task::IncrementalScan {
-                region_id,
+                brane_id,
                 downstream_id,
                 entries,
             };
             if let Err(e) = self.sched.schedule(scanned) {
-                error!("schedule cc task failed"; "error" => ?e, "region_id" => region_id);
+                error!("schedule cc task failed"; "error" => ?e, "brane_id" => brane_id);
                 return;
             }
         }
 
         if let Some(resolver) = resolver {
-            Self::finish_building_resolver(self.observe_id, resolver, region, self.sched.clone());
+            Self::finish_building_resolver(self.observe_id, resolver, brane, self.sched.clone());
         }
 
         CC_SCAN_DURATION_HISTOGRAM.observe(start.elapsed().as_secs_f64());
@@ -746,20 +746,20 @@ impl Initializer {
     fn finish_building_resolver(
         observe_id: ObserveID,
         mut resolver: Resolver,
-        region: Region,
+        brane: Brane,
         sched: Scheduler<Task>,
     ) {
         resolver.init();
         if resolver.locks().is_empty() {
             info!(
                 "no lock found";
-                "region_id" => region.get_id()
+                "brane_id" => brane.get_id()
             );
         } else {
             let rts = resolver.resolve(TimeStamp::zero());
             info!(
                 "resolver initialized";
-                "region_id" => region.get_id(),
+                "brane_id" => brane.get_id(),
                 "resolved_ts" => rts,
                 "lock_count" => resolver.locks().len(),
                 "observe_id" => ?observe_id,
@@ -767,11 +767,11 @@ impl Initializer {
         }
 
         fail_point!("before_schedule_resolver_ready");
-        info!("schedule resolver ready"; "region_id" => region.get_id(), "observe_id" => ?observe_id);
+        info!("schedule resolver ready"; "brane_id" => brane.get_id(), "observe_id" => ?observe_id);
         if let Err(e) = sched.schedule(Task::ResolverReady {
             observe_id,
             resolver,
-            region,
+            brane,
         }) {
             error!("schedule task failed"; "error" => ?e);
         }
@@ -782,7 +782,7 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Runnable<Task> fo
     fn run(&mut self, task: Task) {
         debug!("run cc task"; "task" => %task);
         match task {
-            Task::MinTS { region_id, min_ts } => self.on_min_ts(region_id, min_ts),
+            Task::MinTS { brane_id, min_ts } => self.on_min_ts(brane_id, min_ts),
             Task::Register {
                 request,
                 downstream,
@@ -791,15 +791,15 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Runnable<Task> fo
             Task::ResolverReady {
                 observe_id,
                 resolver,
-                region,
-            } => self.on_region_ready(observe_id, resolver, region),
+                brane,
+            } => self.on_brane_ready(observe_id, resolver, brane),
             Task::Deregister(deregister) => self.on_deregister(deregister),
             Task::IncrementalScan {
-                region_id,
+                brane_id,
                 downstream_id,
                 entries,
             } => {
-                self.on_incremental_scan(region_id, downstream_id, entries);
+                self.on_incremental_scan(brane_id, downstream_id, entries);
             }
             Task::MultiBatch { multi } => self.on_multi_batch(multi),
             Task::OpenConn { conn } => self.on_open_conn(conn),
@@ -813,8 +813,8 @@ impl<T: 'static + violetabftStoreRouter<foundationdbSnapshot>> Runnable<Task> fo
                 downstream_state.uninitialized_to_normal();
                 cb();
             }
-            Task::Validate(region_id, validate) => {
-                validate(self.0.get(&region_id));
+            Task::Validate(brane_id, validate) => {
+                validate(self.0.get(&brane_id));
             }
         }
         self.flush_all();
@@ -889,7 +889,7 @@ mod tests {
         let initializer = Initializer {
             sched: receiver_worker.scheduler(),
 
-            region_id: 1,
+            brane_id: 1,
             observe_id: ObserveID::new(),
             downstream_id: DownstreamID::new(),
             downstream_state,
@@ -930,7 +930,7 @@ mod tests {
             expected_locks.entry(ts).or_default().insert(k.to_vec());
         }
 
-        let region = Region::default();
+        let brane = Brane::default();
         let snap = embedded_engine.snapshot(&Context::default()).unwrap();
 
         let check_result = || loop {
@@ -945,22 +945,22 @@ mod tests {
             }
         };
 
-        initializer.async_incremental_scan(snap.clone(), region.clone());
+        initializer.async_incremental_scan(snap.clone(), brane.clone());
         check_result();
         initializer.batch_size = 1000;
-        initializer.async_incremental_scan(snap.clone(), region.clone());
+        initializer.async_incremental_scan(snap.clone(), brane.clone());
         check_result();
 
         initializer.batch_size = 10;
-        initializer.async_incremental_scan(snap.clone(), region.clone());
+        initializer.async_incremental_scan(snap.clone(), brane.clone());
         check_result();
 
         initializer.batch_size = 11;
-        initializer.async_incremental_scan(snap.clone(), region.clone());
+        initializer.async_incremental_scan(snap.clone(), brane.clone());
         check_result();
 
         initializer.build_resolver = false;
-        initializer.async_incremental_scan(snap.clone(), region.clone());
+        initializer.async_incremental_scan(snap.clone(), brane.clone());
 
         loop {
             let task = rx.recv_timeout(Duration::from_secs(1));
@@ -974,7 +974,7 @@ mod tests {
 
         // Test cancellation.
         initializer.downstream_state.set_stopped();
-        initializer.async_incremental_scan(snap, region);
+        initializer.async_incremental_scan(snap, brane);
 
         loop {
             let task = rx.recv_timeout(Duration::from_secs(1));
@@ -998,17 +998,17 @@ mod tests {
         let (tx, _rx) = batch::unbounded(1);
 
         // Fill the channel.
-        let _violetabft_rx = violetabft_router.add_region(1 /* region id */, 1 /* cap */);
+        let _violetabft_rx = violetabft_router.add_brane(1 /* brane id */, 1 /* cap */);
         loop {
             if let Err(violetabftStoreError::Transport(_)) =
-                violetabft_router.casual_send(1, CasualMessage::ClearRegionSize)
+                violetabft_router.casual_send(1, CasualMessage::ClearBraneSize)
             {
                 break;
             }
         }
         // Make sure channel is full.
         violetabft_router
-            .casual_send(1, CasualMessage::ClearRegionSize)
+            .casual_send(1, CasualMessage::ClearBraneSize)
             .unwrap_err();
 
         let conn = Conn::new(tx);
@@ -1017,15 +1017,15 @@ mod tests {
         let mut req_header = Header::default();
         req_header.set_cluster_id(0);
         let mut req = ChangeDataRequest::default();
-        req.set_region_id(1);
-        let region_epoch = req.get_region_epoch().clone();
-        let downstream = Downstream::new("".to_string(), region_epoch, 0, conn_id);
+        req.set_brane_id(1);
+        let brane_epoch = req.get_brane_epoch().clone();
+        let downstream = Downstream::new("".to_string(), brane_epoch, 0, conn_id);
         ep.run(Task::Register {
             request: req,
             downstream,
             conn_id,
         });
-        assert_eq!(ep.capture_regions.len(), 1);
+        assert_eq!(ep.capture_branes.len(), 1);
 
         for _ in 0..5 {
             if let Ok(Some(Task::Deregister(Deregister::Downstream { err, .. }))) =
@@ -1042,7 +1042,7 @@ mod tests {
     fn test_deregister() {
         let (task_sched, _task_rx) = dummy_scheduler();
         let violetabft_router = MocekvioletabftStoreRouter::new();
-        let _violetabft_rx = violetabft_router.add_region(1 /* region id */, 100 /* cap */);
+        let _violetabft_rx = violetabft_router.add_brane(1 /* brane id */, 100 /* cap */);
         let observer = CdcObserver::new(task_sched.clone());
         let fidelio = Arc::new(TestFIDelClient::new(0, true));
         let mut ep = Endpoint::new(fidelio, task_sched, violetabft_router, observer);
@@ -1054,21 +1054,21 @@ mod tests {
         let mut req_header = Header::default();
         req_header.set_cluster_id(0);
         let mut req = ChangeDataRequest::default();
-        req.set_region_id(1);
-        let region_epoch = req.get_region_epoch().clone();
-        let downstream = Downstream::new("".to_string(), region_epoch.clone(), 0, conn_id);
+        req.set_brane_id(1);
+        let brane_epoch = req.get_brane_epoch().clone();
+        let downstream = Downstream::new("".to_string(), brane_epoch.clone(), 0, conn_id);
         let downstream_id = downstream.get_id();
         ep.run(Task::Register {
             request: req.clone(),
             downstream,
             conn_id,
         });
-        assert_eq!(ep.capture_regions.len(), 1);
+        assert_eq!(ep.capture_branes.len(), 1);
 
         let mut err_header = ErrorHeader::default();
         err_header.set_not_leader(Default::default());
         let deregister = Deregister::Downstream {
-            region_id: 1,
+            brane_id: 1,
             downstream_id,
             conn_id,
             err: Some(Error::Request(err_header.clone())),
@@ -1080,29 +1080,29 @@ mod tests {
             Event_oneof_event::Error(err) => assert!(err.has_not_leader()),
             _ => panic!("unknown event"),
         }
-        assert_eq!(ep.capture_regions.len(), 0);
+        assert_eq!(ep.capture_branes.len(), 0);
 
-        let downstream = Downstream::new("".to_string(), region_epoch.clone(), 0, conn_id);
+        let downstream = Downstream::new("".to_string(), brane_epoch.clone(), 0, conn_id);
         let new_downstream_id = downstream.get_id();
         ep.run(Task::Register {
             request: req.clone(),
             downstream,
             conn_id,
         });
-        assert_eq!(ep.capture_regions.len(), 1);
+        assert_eq!(ep.capture_branes.len(), 1);
 
         let deregister = Deregister::Downstream {
-            region_id: 1,
+            brane_id: 1,
             downstream_id,
             conn_id,
             err: Some(Error::Request(err_header.clone())),
         };
         ep.run(Task::Deregister(deregister));
         assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
-        assert_eq!(ep.capture_regions.len(), 1);
+        assert_eq!(ep.capture_branes.len(), 1);
 
         let deregister = Deregister::Downstream {
-            region_id: 1,
+            brane_id: 1,
             downstream_id: new_downstream_id,
             conn_id,
             err: Some(Error::Request(err_header.clone())),
@@ -1114,18 +1114,18 @@ mod tests {
             Event_oneof_event::Error(err) => assert!(err.has_not_leader()),
             _ => panic!("unknown event"),
         }
-        assert_eq!(ep.capture_regions.len(), 0);
+        assert_eq!(ep.capture_branes.len(), 0);
 
         // Stale deregister should be filtered.
-        let downstream = Downstream::new("".to_string(), region_epoch, 0, conn_id);
+        let downstream = Downstream::new("".to_string(), brane_epoch, 0, conn_id);
         ep.run(Task::Register {
             request: req,
             downstream,
             conn_id,
         });
-        assert_eq!(ep.capture_regions.len(), 1);
-        let deregister = Deregister::Region {
-            region_id: 1,
+        assert_eq!(ep.capture_branes.len(), 1);
+        let deregister = Deregister::Brane {
+            brane_id: 1,
             // A stale ObserveID (different from the actual one).
             observe_id: ObserveID::new(),
             err: Error::Request(err_header),
@@ -1135,6 +1135,6 @@ mod tests {
             Err(_) => (),
             _ => panic!("unknown event"),
         }
-        assert_eq!(ep.capture_regions.len(), 1);
+        assert_eq!(ep.capture_branes.len(), 1);
     }
 }

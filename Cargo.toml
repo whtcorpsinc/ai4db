@@ -17,7 +17,7 @@ publish = "false"
 members =[
 "cmd", 
 "einsteindb",
-"einsteindb-gen,"
+"einsteindb-gen",
 "einsteindb-sys",
 ]
 

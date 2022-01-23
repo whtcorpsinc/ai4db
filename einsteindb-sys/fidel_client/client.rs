@@ -22,7 +22,7 @@ use futures03::future::FutureExt;
 use grpcio::{CallOption, EnvBuilder, WriteFlags};
 use eekvproto::metapb;
 use eekvproto::FIDelpb::{self, Member};
-use eekvproto::replication_modepb::{RegionReplicationStatus, ReplicationStatus};
+use eekvproto::replication_modepb::{BraneReplicationStatus, ReplicationStatus};
 use security::SecurityManager;
 use EinsteinDB_util::time::duration_to_sec;
 use EinsteinDB_util::{Either, HandyRwLock};
@@ -31,7 +31,7 @@ use txn_types::TimeStamp;
 use super::metrics::*;
 use super::util::{check_resp_header, sync_request, validate_endpoints, Inner, LeaderClient};
 use super::{ClusterVersion, Config, FIDelFuture, UnixSecs};
-use super::{Error, FIDelClient, RegionInfo, RegionStat, Result, REQUEST_TIMEOUT};
+use super::{Error, FIDelClient, BraneInfo, BraneStat, Result, REQUEST_TIMEOUT};
 use EinsteinDB_util::timer::GLOBAL_TIMER_HANDLE;
 
 const CQ_COUNT: usize = 1;
@@ -146,32 +146,32 @@ impl RpcClient {
         CallOption::default().timeout(Duration::from_secs(REQUEST_TIMEOUT))
     }
 
-    /// Gets given key's Region and Region's leader from FIDel.
-    fn get_region_and_leader(&self, key: &[u8]) -> Result<(metapb::Region, Option<metapb::Causet>)> {
+    /// Gets given key's Brane and Brane's leader from FIDel.
+    fn get_brane_and_leader(&self, key: &[u8]) -> Result<(metapb::Brane, Option<metapb::Causet>)> {
         let _timer = FIDel_REQUEST_HISTOGRAM_VEC
-            .with_label_values(&["get_region"])
+            .with_label_values(&["get_brane"])
             .start_coarse_timer();
 
-        let mut req = FIDelpb::GetRegionRequest::default();
+        let mut req = FIDelpb::GetBraneRequest::default();
         req.set_header(self.header());
-        req.set_region_key(key.to_vec());
+        req.set_brane_key(key.to_vec());
 
         let mut resp = sync_request(&self.leader_client, LEADER_CHANGE_RETRY, |client| {
-            client.get_region_opt(&req, Self::call_option())
+            client.get_brane_opt(&req, Self::call_option())
         })?;
         check_resp_header(resp.get_header())?;
 
-        let region = if resp.has_region() {
-            resp.take_region()
+        let brane = if resp.has_brane() {
+            resp.take_brane()
         } else {
-            return Err(Error::RegionNotFound(key.to_owned()));
+            return Err(Error::BraneNotFound(key.to_owned()));
         };
         let leader = if resp.has_leader() {
             Some(resp.take_leader())
         } else {
             None
         };
-        Ok((region, leader))
+        Ok((brane, leader))
     }
 }
 
@@ -194,7 +194,7 @@ impl FIDelClient for RpcClient {
     fn bootstrap_cluster(
         &self,
         stores: metapb::Store,
-        region: metapb::Region,
+        brane: metapb::Brane,
     ) -> Result<Option<ReplicationStatus>> {
         let _timer = FIDel_REQUEST_HISTOGRAM_VEC
             .with_label_values(&["bootstrap_cluster"])
@@ -203,7 +203,7 @@ impl FIDelClient for RpcClient {
         let mut req = FIDelpb::BootstrapRequest::default();
         req.set_header(self.header());
         req.set_store(stores);
-        req.set_region(region);
+        req.set_brane(brane);
 
         let mut resp = sync_request(&self.leader_client, LEADER_CHANGE_RETRY, |client| {
             client.bootstrap_opt(&req, Self::call_option())
@@ -316,37 +316,37 @@ impl FIDelClient for RpcClient {
         Ok(resp.take_cluster())
     }
 
-    fn get_region(&self, key: &[u8]) -> Result<metapb::Region> {
-        self.get_region_and_leader(key).map(|x| x.0)
+    fn get_brane(&self, key: &[u8]) -> Result<metapb::Brane> {
+        self.get_brane_and_leader(key).map(|x| x.0)
     }
 
-    fn get_region_info(&self, key: &[u8]) -> Result<RegionInfo> {
-        self.get_region_and_leader(key)
-            .map(|x| RegionInfo::new(x.0, x.1))
+    fn get_brane_info(&self, key: &[u8]) -> Result<BraneInfo> {
+        self.get_brane_and_leader(key)
+            .map(|x| BraneInfo::new(x.0, x.1))
     }
 
-    fn get_region_by_id(&self, region_id: u64) -> FIDelFuture<Option<metapb::Region>> {
+    fn get_brane_by_id(&self, brane_id: u64) -> FIDelFuture<Option<metapb::Brane>> {
         let timer = Instant::now();
 
-        let mut req = FIDelpb::GetRegionByIdRequest::default();
+        let mut req = FIDelpb::GetBraneByIdRequest::default();
         req.set_header(self.header());
-        req.set_region_id(region_id);
+        req.set_brane_id(brane_id);
 
-        let executor = move |client: &RwLock<Inner>, req: FIDelpb::GetRegionByIdRequest| {
+        let executor = move |client: &RwLock<Inner>, req: FIDelpb::GetBraneByIdRequest| {
             let handler = client
                 .rl()
                 .client_stub
-                .get_region_by_id_async_opt(&req, Self::call_option())
+                .get_brane_by_id_async_opt(&req, Self::call_option())
                 .unwrap_or_else(|e| {
-                    panic!("fail to request FIDel {} err {:?}", "get_region_by_id", e)
+                    panic!("fail to request FIDel {} err {:?}", "get_brane_by_id", e)
                 });
             Box::new(handler.map_err(Error::Grpc).and_then(move |mut resp| {
                 FIDel_REQUEST_HISTOGRAM_VEC
-                    .with_label_values(&["get_region_by_id"])
+                    .with_label_values(&["get_brane_by_id"])
                     .observe(duration_to_sec(timer.elapsed()));
                 check_resp_header(resp.get_header())?;
-                if resp.has_region() {
-                    Ok(Some(resp.take_region()))
+                if resp.has_brane() {
+                    Ok(Some(resp.take_brane()))
                 } else {
                     Ok(None)
                 }
@@ -358,38 +358,38 @@ impl FIDelClient for RpcClient {
             .execute()
     }
 
-    fn region_heartbeat(
+    fn brane_heartbeat(
         &self,
         term: u64,
-        region: metapb::Region,
+        brane: metapb::Brane,
         leader: metapb::Causet,
-        region_stat: RegionStat,
-        replication_status: Option<RegionReplicationStatus>,
+        brane_stat: BraneStat,
+        replication_status: Option<BraneReplicationStatus>,
     ) -> FIDelFuture<()> {
         FIDel_HEARTBEAT_COUNTER_VEC.with_label_values(&["send"]).inc();
 
-        let mut req = FIDelpb::RegionHeartbeatRequest::default();
+        let mut req = FIDelpb::BraneHeartbeatRequest::default();
         req.set_term(term);
         req.set_header(self.header());
-        req.set_region(region);
+        req.set_brane(brane);
         req.set_leader(leader);
-        req.set_down_peers(region_stat.down_peers.into());
-        req.set_pending_peers(region_stat.pending_peers.into());
-        req.set_bytes_written(region_stat.written_bytes);
-        req.set_keys_written(region_stat.written_keys);
-        req.set_bytes_read(region_stat.read_bytes);
-        req.set_keys_read(region_stat.read_keys);
-        req.set_approximate_size(region_stat.approximate_size);
-        req.set_approximate_keys(region_stat.approximate_keys);
+        req.set_down_peers(brane_stat.down_peers.into());
+        req.set_pending_peers(brane_stat.pending_peers.into());
+        req.set_bytes_written(brane_stat.written_bytes);
+        req.set_keys_written(brane_stat.written_keys);
+        req.set_bytes_read(brane_stat.read_bytes);
+        req.set_keys_read(brane_stat.read_keys);
+        req.set_approximate_size(brane_stat.approximate_size);
+        req.set_approximate_keys(brane_stat.approximate_keys);
         if let Some(s) = replication_status {
             req.set_replication_status(s);
         }
         let mut interval = FIDelpb::TimeInterval::default();
-        interval.set_start_timestamp(region_stat.last_report_ts.into_inner());
+        interval.set_start_timestamp(brane_stat.last_report_ts.into_inner());
         interval.set_end_timestamp(UnixSecs::now().into_inner());
         req.set_interval(interval);
 
-        let executor = |client: &RwLock<Inner>, req: FIDelpb::RegionHeartbeatRequest| {
+        let executor = |client: &RwLock<Inner>, req: FIDelpb::BraneHeartbeatRequest| {
             let mut inner = client.wl();
             if let Either::Right(ref sender) = inner.hb_sender {
                 return Box::new(future::result(
@@ -401,7 +401,7 @@ impl FIDelClient for RpcClient {
 
             debug!("heartbeat sender is refreshed");
             let left = inner.hb_sender.as_mut().left().unwrap();
-            let sender = left.take().expect("expect region heartbeat sink");
+            let sender = left.take().expect("expect brane heartbeat sink");
             let (tx, rx) = mpsc::unbounded();
             tx.unbounded_send(req)
                 .unwrap_or_else(|e| panic!("send request to unbounded channel failed {:?}", e));
@@ -415,7 +415,7 @@ impl FIDelClient for RpcClient {
                     }))
                     .then(|result| match result {
                         Ok((mut sender, _)) => {
-                            info!("cancel region heartbeat sender");
+                            info!("cancel brane heartbeat sender");
                             sender.get_mut().cancel();
                             Ok(())
                         }
@@ -432,19 +432,19 @@ impl FIDelClient for RpcClient {
             .execute()
     }
 
-    fn handle_region_heartbeat_response<F>(&self, _: u64, f: F) -> FIDelFuture<()>
+    fn handle_brane_heartbeat_response<F>(&self, _: u64, f: F) -> FIDelFuture<()>
     where
-        F: Fn(FIDelpb::RegionHeartbeatResponse) + Send + 'static,
+        F: Fn(FIDelpb::BraneHeartbeatResponse) + Send + 'static,
     {
-        self.leader_client.handle_region_heartbeat_response(f)
+        self.leader_client.handle_brane_heartbeat_response(f)
     }
 
-    fn ask_split(&self, region: metapb::Region) -> FIDelFuture<FIDelpb::AskSplitResponse> {
+    fn ask_split(&self, brane: metapb::Brane) -> FIDelFuture<FIDelpb::AskSplitResponse> {
         let timer = Instant::now();
 
         let mut req = FIDelpb::AskSplitRequest::default();
         req.set_header(self.header());
-        req.set_region(region);
+        req.set_brane(brane);
 
         let executor = move |client: &RwLock<Inner>, req: FIDelpb::AskSplitRequest| {
             let handler = client
@@ -468,14 +468,14 @@ impl FIDelClient for RpcClient {
 
     fn ask_batch_split(
         &self,
-        region: metapb::Region,
+        brane: metapb::Brane,
         count: usize,
     ) -> FIDelFuture<FIDelpb::AskBatchSplitResponse> {
         let timer = Instant::now();
 
         let mut req = FIDelpb::AskBatchSplitRequest::default();
         req.set_header(self.header());
-        req.set_region(region);
+        req.set_brane(brane);
         req.set_split_count(count as u32);
 
         let executor = move |client: &RwLock<Inner>, req: FIDelpb::AskBatchSplitRequest| {
@@ -536,12 +536,12 @@ impl FIDelClient for RpcClient {
             .execute()
     }
 
-    fn report_batch_split(&self, regions: Vec<metapb::Region>) -> FIDelFuture<()> {
+    fn report_batch_split(&self, branes: Vec<metapb::Brane>) -> FIDelFuture<()> {
         let timer = Instant::now();
 
         let mut req = FIDelpb::ReportBatchSplitRequest::default();
         req.set_header(self.header());
-        req.set_regions(regions.into());
+        req.set_branes(branes.into());
 
         let executor = move |client: &RwLock<Inner>, req: FIDelpb::ReportBatchSplitRequest| {
             let handler = client
@@ -565,21 +565,21 @@ impl FIDelClient for RpcClient {
             .execute()
     }
 
-    fn scatter_region(&self, mut region: RegionInfo) -> Result<()> {
+    fn scatter_brane(&self, mut brane: BraneInfo) -> Result<()> {
         let _timer = FIDel_REQUEST_HISTOGRAM_VEC
-            .with_label_values(&["scatter_region"])
+            .with_label_values(&["scatter_brane"])
             .start_coarse_timer();
 
-        let mut req = FIDelpb::ScatterRegionRequest::default();
+        let mut req = FIDelpb::ScatterBraneRequest::default();
         req.set_header(self.header());
-        req.set_region_id(region.get_id());
-        if let Some(leader) = region.leader.take() {
+        req.set_brane_id(brane.get_id());
+        if let Some(leader) = brane.leader.take() {
             req.set_leader(leader);
         }
-        req.set_region(region.region);
+        req.set_brane(brane.brane);
 
         let resp = sync_request(&self.leader_client, LEADER_CHANGE_RETRY, |client| {
-            client.scatter_region_opt(&req, Self::call_option())
+            client.scatter_brane_opt(&req, Self::call_option())
         })?;
         check_resp_header(resp.get_header())
     }
@@ -639,14 +639,14 @@ impl FIDelClient for RpcClient {
         }
     }
 
-    fn get_operator(&self, region_id: u64) -> Result<FIDelpb::GetOperatorResponse> {
+    fn get_operator(&self, brane_id: u64) -> Result<FIDelpb::GetOperatorResponse> {
         let _timer = FIDel_REQUEST_HISTOGRAM_VEC
             .with_label_values(&["get_operator"])
             .start_coarse_timer();
 
         let mut req = FIDelpb::GetOperatorRequest::default();
         req.set_header(self.header());
-        req.set_region_id(region_id);
+        req.set_brane_id(brane_id);
 
         let resp = sync_request(&self.leader_client, LEADER_CHANGE_RETRY, |client| {
             client.get_operator_opt(&req, Self::call_option())

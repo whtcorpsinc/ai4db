@@ -20,11 +20,11 @@ use eekvproto::ccpb::{
 };
 use eekvproto::errorpb;
 
-use eekvproto::metapb::{Region, RegionEpoch};
+use eekvproto::metapb::{Brane, BraneEpoch};
 use eekvproto::violetabft_cmdpb::{AdminCmdType, AdminRequest, AdminResponse, CmdType, Request};
 use violetabftstore::interlock::{Cmd, CmdBatch};
 use violetabftstore::store::fsm::ObserveID;
-use violetabftstore::store::util::compare_region_epoch;
+use violetabftstore::store::util::compare_brane_epoch;
 use violetabftstore::Error as violetabftStoreError;
 use resolved_ts::Resolver;
 use EinsteinDB::storage::txn::TxnEntry;
@@ -102,7 +102,7 @@ pub struct Downstream {
     conn_id: ConnID,
     // The IP address of downstream.
     peer: String,
-    region_epoch: RegionEpoch,
+    brane_epoch: BraneEpoch,
     sink: Option<BatchSender<(usize, Event)>>,
     state: DownstreamState,
 }
@@ -114,7 +114,7 @@ impl Downstream {
     /// sink sends data to the downstream.
     pub fn new(
         peer: String,
-        region_epoch: RegionEpoch,
+        brane_epoch: BraneEpoch,
         req_id: u64,
         conn_id: ConnID,
     ) -> Downstream {
@@ -123,7 +123,7 @@ impl Downstream {
             req_id,
             conn_id,
             peer,
-            region_epoch,
+            brane_epoch,
             sink: None,
             state: DownstreamState::new(),
         }
@@ -160,14 +160,14 @@ impl Downstream {
         self.conn_id
     }
 
-    pub fn sink_duplicate_error(&self, region_id: u64) {
+    pub fn sink_duplicate_error(&self, brane_id: u64) {
         let mut change_data_event = Event::default();
         let mut cc_err = EventError::default();
         let mut err = ErrorDuplicateRequest::default();
-        err.set_region_id(region_id);
+        err.set_brane_id(brane_id);
         cc_err.set_duplicate_request(err);
         change_data_event.event = Some(Event_oneof_event::Error(cc_err));
-        change_data_event.region_id = region_id;
+        change_data_event.brane_id = brane_id;
         self.sink_event(change_data_event, 0);
     }
 }
@@ -207,14 +207,14 @@ enum PendingLock {
     },
 }
 
-/// A CC Sentinel of a violetabftstore region peer.
+/// A CC Sentinel of a violetabftstore brane peer.
 ///
 /// It converts violetabft commands into CC events and broadcast to downstreams.
 /// It also track trancation on the fly in order to compute resolved ts.
 pub struct Sentinel {
     pub id: ObserveID,
-    pub region_id: u64,
-    region: Option<Region>,
+    pub brane_id: u64,
+    brane: Option<Brane>,
     pub downstreams: Vec<Downstream>,
     pub resolver: Option<Resolver>,
     pending: Option<Pending>,
@@ -223,14 +223,14 @@ pub struct Sentinel {
 }
 
 impl Sentinel {
-    /// Create a Sentinel the given region.
-    pub fn new(region_id: u64) -> Sentinel {
+    /// Create a Sentinel the given brane.
+    pub fn new(brane_id: u64) -> Sentinel {
         Sentinel {
-            region_id,
+            brane_id,
             id: ObserveID::new(),
             downstreams: Vec::new(),
             resolver: None,
-            region: None,
+            brane: None,
             pending: Some(Pending::default()),
             enabled: Arc::new(AtomicBool::new(true)),
             failed: false,
@@ -238,7 +238,7 @@ impl Sentinel {
     }
 
     /// Returns a shared flag.
-    /// True if there are some active downstreams subscribe the region.
+    /// True if there are some active downstreams subscribe the brane.
     /// False if all downstreams has unsubscribed.
     pub fn enabled(&self) -> Arc<AtomicBool> {
         self.enabled.clone()
@@ -246,16 +246,16 @@ impl Sentinel {
 
     /// Return false if subscribe failed.
     pub fn subscribe(&mut self, downstream: Downstream) -> bool {
-        if let Some(region) = self.region.as_ref() {
-            if let Err(e) = compare_region_epoch(
-                &downstream.region_epoch,
-                region,
+        if let Some(brane) = self.brane.as_ref() {
+            if let Err(e) = compare_brane_epoch(
+                &downstream.brane_epoch,
+                brane,
                 false, /* check_conf_ver */
                 true,  /* check_ver */
-                true,  /* include_region */
+                true,  /* include_brane */
             ) {
                 info!("fail to subscribe downstream";
-                    "region_id" => region.get_id(),
+                    "brane_id" => brane.get_id(),
                     "downstream_id" => ?downstream.get_id(),
                     "conn_id" => ?downstream.get_conn_id(),
                     "req_id" => downstream.req_id,
@@ -319,12 +319,12 @@ impl Sentinel {
             cc_err.set_epoch_not_match(epoch_not_match);
         } else {
             // TODO: Add more errors to the cc protocol
-            let mut region_not_found = errorpb::RegionNotFound::default();
-            region_not_found.set_region_id(self.region_id);
-            cc_err.set_region_not_found(region_not_found);
+            let mut brane_not_found = errorpb::BraneNotFound::default();
+            brane_not_found.set_brane_id(self.brane_id);
+            cc_err.set_brane_not_found(brane_not_found);
         }
         change_data_event.event = Some(Event_oneof_event::Error(cc_err));
-        change_data_event.region_id = self.region_id;
+        change_data_event.brane_id = self.brane_id;
         change_data_event
     }
 
@@ -338,15 +338,15 @@ impl Sentinel {
 
     /// Stop the Sentinel
     ///
-    /// This means the region has met an unrecoverable error for CC.
+    /// This means the brane has met an unrecoverable error for CC.
     /// It broadcasts errors to all downstream and stops.
     pub fn stop(&mut self, err: Error) {
         self.mark_failed();
         // Stop observe further events.
         self.enabled.store(false, Ordering::SeqCst);
 
-        info!("region met error";
-            "region_id" => self.region_id, "error" => ?err);
+        info!("brane met error";
+            "brane_id" => self.brane_id, "error" => ?err);
         let change_data_err = self.error_event(err);
         for downstream in &self.downstreams {
             downstream.state.set_stopped();
@@ -358,8 +358,8 @@ impl Sentinel {
         let downstreams = self.downstreams();
         assert!(
             !downstreams.is_empty(),
-            "region {} miss downstream, event: {:?}",
-            self.region_id,
+            "brane {} miss downstream, event: {:?}",
+            self.brane_id,
             change_data_event,
         );
         for i in 0..downstreams.len() - 1 {
@@ -375,14 +375,14 @@ impl Sentinel {
     }
 
     /// Install a resolver and return pending downstreams.
-    pub fn on_region_ready(&mut self, mut resolver: Resolver, region: Region) -> Vec<Downstream> {
+    pub fn on_brane_ready(&mut self, mut resolver: Resolver, brane: Brane) -> Vec<Downstream> {
         assert!(
             self.resolver.is_none(),
-            "region {} resolver should not be ready",
-            self.region_id,
+            "brane {} resolver should not be ready",
+            self.brane_id,
         );
         // Mark the Sentinel as initialized.
-        self.region = Some(region);
+        self.brane = Some(brane);
         let mut pending = self.pending.take().unwrap();
         for lock in pending.take_locks() {
             match lock {
@@ -395,27 +395,27 @@ impl Sentinel {
             }
         }
         self.resolver = Some(resolver);
-        info!("region is ready"; "region_id" => self.region_id);
+        info!("brane is ready"; "brane_id" => self.brane_id);
         pending.take_downstreams()
     }
 
     /// Try advance and broadcast resolved ts.
     pub fn on_min_ts(&mut self, min_ts: TimeStamp) -> Option<TimeStamp> {
         if self.resolver.is_none() {
-            debug!("region resolver not ready";
-                "region_id" => self.region_id, "min_ts" => min_ts);
+            debug!("brane resolver not ready";
+                "brane_id" => self.brane_id, "min_ts" => min_ts);
             return None;
         }
-        debug!("try to advance ts"; "region_id" => self.region_id, "min_ts" => min_ts);
+        debug!("try to advance ts"; "brane_id" => self.brane_id, "min_ts" => min_ts);
         let resolver = self.resolver.as_mut().unwrap();
         let resolved_ts = match resolver.resolve(min_ts) {
             Some(rts) => rts,
             None => return None,
         };
         debug!("resolved ts uFIDelated";
-            "region_id" => self.region_id, "resolved_ts" => resolved_ts);
+            "brane_id" => self.brane_id, "resolved_ts" => resolved_ts);
         let mut change_data_event = Event::default();
-        change_data_event.region_id = self.region_id;
+        change_data_event.brane_id = self.brane_id;
         change_data_event.event = Some(Event_oneof_event::ResolvedTs(resolved_ts.into_inner()));
         self.broadcast(change_data_event, 0, true);
         CC_RESOLVED_TS_GAP_HISTOGRAM
@@ -428,7 +428,7 @@ impl Sentinel {
         if batch.observe_id != self.id {
             return Ok(());
         }
-        for cmd in batch.into_iter(self.region_id) {
+        for cmd in batch.into_iter(self.brane_id) {
             let Cmd {
                 index,
                 mut request,
@@ -458,7 +458,7 @@ impl Sentinel {
         let downstream = if let Some(d) = downstreams.iter().find(|d| d.id == downstream_id) {
             d
         } else {
-            warn!("downstream not found"; "downstream_id" => ?downstream_id, "region_id" => self.region_id);
+            warn!("downstream not found"; "downstream_id" => ?downstream_id, "brane_id" => self.brane_id);
             return;
         };
 
@@ -527,7 +527,7 @@ impl Sentinel {
                 let mut event_entries = EventEntries::default();
                 event_entries.entries = rs.into();
                 let mut change_data_event = Event::default();
-                change_data_event.region_id = self.region_id;
+                change_data_event.brane_id = self.brane_id;
                 change_data_event.event = Some(Event_oneof_event::Entries(event_entries));
                 downstream.sink_event(change_data_event, s);
             }
@@ -545,7 +545,7 @@ impl Sentinel {
                 if req.get_cmd_type() != CmdType::Delete {
                     debug!(
                         "skip other command";
-                        "region_id" => self.region_id,
+                        "brane_id" => self.brane_id,
                         "command" => ?req,
                     );
                 }
@@ -574,7 +574,7 @@ impl Sentinel {
                             row.key.clone(),
                         ),
                         None => {
-                            assert!(self.pending.is_some(), "region resolver not ready");
+                            assert!(self.pending.is_some(), "brane resolver not ready");
                             let pending = self.pending.as_mut().unwrap();
                             pending.locks.push(PendingLock::Untrack {
                                 key: row.key.clone(),
@@ -611,7 +611,7 @@ impl Sentinel {
                             resolver.track_lock(row.start_ts.into(), row.key.clone())
                         }
                         None => {
-                            assert!(self.pending.is_some(), "region resolver not ready");
+                            assert!(self.pending.is_some(), "brane resolver not ready");
                             let pending = self.pending.as_mut().unwrap();
                             pending.locks.push(PendingLock::Track {
                                 key: row.key.clone(),
@@ -642,7 +642,7 @@ impl Sentinel {
         let mut event_entries = EventEntries::default();
         event_entries.entries = entries.into();
         let mut change_data_event = Event::default();
-        change_data_event.region_id = self.region_id;
+        change_data_event.brane_id = self.brane_id;
         change_data_event.index = index;
         change_data_event.event = Some(Event_oneof_event::Entries(event_entries));
         self.broadcast(change_data_event, total_size, true);
@@ -659,7 +659,7 @@ impl Sentinel {
             ),
             AdminCmdType::BatchSplit => violetabftStoreError::EpochNotMatch(
                 "batchsplit".to_owned(),
-                response.mut_splits().take_regions().into(),
+                response.mut_splits().take_branes().into(),
             ),
             AdminCmdType::PrepareMerge
             | AdminCmdType::CommitMerge
@@ -750,34 +750,34 @@ mod tests {
     use super::*;
     use futures::{Future, Stream};
     use eekvproto::errorpb::Error as ErrorHeader;
-    use eekvproto::metapb::Region;
+    use eekvproto::metapb::Brane;
     use std::cell::Cell;
     use EinsteinDB::storage::mvcc::test_util::*;
     use EinsteinDB_util::mpsc::batch::{self, BatchReceiver, VecCollector};
 
     #[test]
     fn test_error() {
-        let region_id = 1;
-        let mut region = Region::default();
-        region.set_id(region_id);
-        region.mut_peers().push(Default::default());
-        region.mut_region_epoch().set_version(2);
-        region.mut_region_epoch().set_conf_ver(2);
-        let region_epoch = region.get_region_epoch().clone();
+        let brane_id = 1;
+        let mut brane = Brane::default();
+        brane.set_id(brane_id);
+        brane.mut_peers().push(Default::default());
+        brane.mut_brane_epoch().set_version(2);
+        brane.mut_brane_epoch().set_conf_ver(2);
+        let brane_epoch = brane.get_brane_epoch().clone();
 
         let (sink, rx) = batch::unbounded(1);
         let rx = BatchReceiver::new(rx, 1, Vec::new, VecCollector);
         let request_id = 123;
         let mut downstream =
-            Downstream::new(String::new(), region_epoch, request_id, ConnID::new());
+            Downstream::new(String::new(), brane_epoch, request_id, ConnID::new());
         downstream.set_sink(sink);
-        let mut Sentinel = Sentinel::new(region_id);
+        let mut Sentinel = Sentinel::new(brane_id);
         Sentinel.subscribe(downstream);
         let enabled = Sentinel.enabled();
         assert!(enabled.load(Ordering::SeqCst));
-        let mut resolver = Resolver::new(region_id);
+        let mut resolver = Resolver::new(brane_id);
         resolver.init();
-        for downstream in Sentinel.on_region_ready(resolver, region) {
+        for downstream in Sentinel.on_brane_ready(resolver, brane) {
             Sentinel.subscribe(downstream);
         }
 
@@ -810,10 +810,10 @@ mod tests {
         assert!(!enabled.load(Ordering::SeqCst));
 
         let mut err_header = ErrorHeader::default();
-        err_header.set_region_not_found(Default::default());
+        err_header.set_brane_not_found(Default::default());
         Sentinel.stop(Error::Request(err_header));
         let err = receive_error();
-        assert!(err.has_region_not_found());
+        assert!(err.has_brane_not_found());
 
         let mut err_header = ErrorHeader::default();
         err_header.set_epoch_not_match(Default::default());
@@ -822,18 +822,18 @@ mod tests {
         assert!(err.has_epoch_not_match());
 
         // Split
-        let mut region = Region::default();
-        region.set_id(1);
+        let mut brane = Brane::default();
+        brane.set_id(1);
         let mut request = AdminRequest::default();
         request.set_cmd_type(AdminCmdType::Split);
         let mut response = AdminResponse::default();
-        response.mut_split().set_left(region.clone());
+        response.mut_split().set_left(brane.clone());
         let err = Sentinel.sink_admin(request, response).err().unwrap();
         Sentinel.stop(err);
         let mut err = receive_error();
         assert!(err.has_epoch_not_match());
         err.take_epoch_not_match()
-            .current_regions
+            .current_branes
             .into_iter()
             .find(|r| r.get_id() == 1)
             .unwrap();
@@ -841,13 +841,13 @@ mod tests {
         let mut request = AdminRequest::default();
         request.set_cmd_type(AdminCmdType::BatchSplit);
         let mut response = AdminResponse::default();
-        response.mut_splits().set_regions(vec![region].into());
+        response.mut_splits().set_branes(vec![brane].into());
         let err = Sentinel.sink_admin(request, response).err().unwrap();
         Sentinel.stop(err);
         let mut err = receive_error();
         assert!(err.has_epoch_not_match());
         err.take_epoch_not_match()
-            .current_regions
+            .current_branes
             .into_iter()
             .find(|r| r.get_id() == 1)
             .unwrap();
@@ -860,7 +860,7 @@ mod tests {
         Sentinel.stop(err);
         let mut err = receive_error();
         assert!(err.has_epoch_not_match());
-        assert!(err.take_epoch_not_match().current_regions.is_empty());
+        assert!(err.take_epoch_not_match().current_branes.is_empty());
 
         let mut request = AdminRequest::default();
         request.set_cmd_type(AdminCmdType::CommitMerge);
@@ -869,7 +869,7 @@ mod tests {
         Sentinel.stop(err);
         let mut err = receive_error();
         assert!(err.has_epoch_not_match());
-        assert!(err.take_epoch_not_match().current_regions.is_empty());
+        assert!(err.take_epoch_not_match().current_branes.is_empty());
 
         let mut request = AdminRequest::default();
         request.set_cmd_type(AdminCmdType::RollbackMerge);
@@ -878,27 +878,27 @@ mod tests {
         Sentinel.stop(err);
         let mut err = receive_error();
         assert!(err.has_epoch_not_match());
-        assert!(err.take_epoch_not_match().current_regions.is_empty());
+        assert!(err.take_epoch_not_match().current_branes.is_empty());
     }
 
     #[test]
     fn test_scan() {
-        let region_id = 1;
-        let mut region = Region::default();
-        region.set_id(region_id);
-        region.mut_peers().push(Default::default());
-        region.mut_region_epoch().set_version(2);
-        region.mut_region_epoch().set_conf_ver(2);
-        let region_epoch = region.get_region_epoch().clone();
+        let brane_id = 1;
+        let mut brane = Brane::default();
+        brane.set_id(brane_id);
+        brane.mut_peers().push(Default::default());
+        brane.mut_brane_epoch().set_version(2);
+        brane.mut_brane_epoch().set_conf_ver(2);
+        let brane_epoch = brane.get_brane_epoch().clone();
 
         let (sink, rx) = batch::unbounded(1);
         let rx = BatchReceiver::new(rx, 1, Vec::new, VecCollector);
         let request_id = 123;
         let mut downstream =
-            Downstream::new(String::new(), region_epoch, request_id, ConnID::new());
+            Downstream::new(String::new(), brane_epoch, request_id, ConnID::new());
         let downstream_id = downstream.get_id();
         downstream.set_sink(sink);
-        let mut Sentinel = Sentinel::new(region_id);
+        let mut Sentinel = Sentinel::new(brane_id);
         Sentinel.subscribe(downstream);
         let enabled = Sentinel.enabled();
         assert!(enabled.load(Ordering::SeqCst));
@@ -916,7 +916,7 @@ mod tests {
                 assert_eq!(e.1.get_request_id(), request_id);
             }
             let (_, change_data_event) = &mut events[0];
-            assert_eq!(change_data_event.region_id, region_id);
+            assert_eq!(change_data_event.brane_id, brane_id);
             assert_eq!(change_data_event.index, 0);
             let event = change_data_event.event.take().unwrap();
             match event {
@@ -927,7 +927,7 @@ mod tests {
             }
         };
 
-        // Stashed in pending before region ready.
+        // Stashed in pending before brane ready.
         let entries = vec![
             Some(
                 EntryBuilder::default()
@@ -981,8 +981,8 @@ mod tests {
         set_event_row_type(&mut row3, EventLogType::Initialized);
         check_event(vec![row1, row2, row3]);
 
-        let mut resolver = Resolver::new(region_id);
+        let mut resolver = Resolver::new(brane_id);
         resolver.init();
-        Sentinel.on_region_ready(resolver, region);
+        Sentinel.on_brane_ready(resolver, brane);
     }
 }
